@@ -1,0 +1,23 @@
+{
+  "name": "london-live-buses",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node --use-env-proxy --env-file-if-exists=.env server.mjs",
+    "test": "node --test test/*.test.mjs",
+    "test:browser": "node test/browser.mjs"
+  },
+  "engines": {
+    "node": ">=24.5"
+  },
+  "dependencies": {
+    "fast-xml-parser": "^5.11.2",
+    "maplibre-gl": "6.15.0",
+    "three": "0.169.0"
+  },
+  "devDependencies": {
+    "playwright": "1.56.1",
+    "pngjs": "^7.0.0"
+  }
+}

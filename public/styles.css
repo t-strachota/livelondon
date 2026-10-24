@@ -1,0 +1,19 @@
+html, body, #map { margin: 0; height: 100%; background: #f2f2ef; }
+body { font-family: system-ui, -apple-system, sans-serif; color: #242923; }
+.maplibregl-popup-content { font: 13px/1.5 system-ui, sans-serif; padding: 12px 16px; border-radius: 10px; }
+.bus-popup strong { display: block; font-size: 16px; margin-bottom: 4px; }
+.bus-popup small { display: block; color: #626961; margin-top: 6px; }
+.panel { position: absolute; z-index: 2; top: 20px; left: 20px; width: min(272px, calc(100vw - 72px)); padding: 18px; border: 1px solid #dddcd5; border-radius: 14px; background: #fffffff0; box-shadow: 0 4px 24px #28352614; backdrop-filter: blur(12px); }
+.panel h1 { margin: 0 0 13px; font-size: 21px; letter-spacing: -.5px; }
+.status { display: flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 600; }
+.status::before { content: ''; width: 7px; height: 7px; background: #b39454; border-radius: 50%; flex: 0 0 auto; }
+.status[data-status=live]::before { background: #3e8050; }
+.status[data-status=unavailable]::before, .status[data-status=stale]::before { background: #b2603d; }
+.count { margin: 12px 0 3px; font-size: 14px; }
+.detail, .hint { margin: 0; font-size: 12px; line-height: 1.55; color: #697066; }
+.hint { margin-top: 13px; padding-top: 12px; border-top: 1px solid #e8e8e0; }
+.legend { display: flex; gap: 16px; margin-top: 12px; font-size: 11px; color: #697066; }
+.legend span { display: flex; align-items: center; gap: 5px; }
+.dot { width: 7px; height: 7px; display: inline-block; border-radius: 50%; background: #d32f2f; }
+.dot.stop { width: 5px; height: 5px; background: #727a72; }
+@media (max-width: 600px) { .panel { top: 12px; left: 12px; padding: 14px; width: 228px; } .panel h1 { font-size: 18px; } }
