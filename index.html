@@ -9,12 +9,16 @@
 <style>
   html, body, #map { margin: 0; height: 100%; background: #f2f2ef; }
   .maplibregl-popup-content { font: 13px/1.4 system-ui, sans-serif; padding: 8px 12px; }
+  #traffic-toggle { position: absolute; top: 10px; left: 10px; background: #fff; padding: 6px 10px; border-radius: 6px;
+    box-shadow: 0 1px 4px #0003; font: 13px system-ui, sans-serif; cursor: pointer; }
 </style>
 </head>
 <body>
 <div id="map"></div>
+<label id="traffic-toggle"><input type="checkbox" checked> Traffic</label>
 <script>
 const MAPTILER_KEY = "Piqlzte12zD4i2H9jha1";
+const TOMTOM_KEY = "CPnPmYj0K9TjSsJsQ7cQp3NJ6vjm0c8C";
 const SOURCE = "maptiler_planet"; // vector source name inside the streets-v2 style
 
 // Style layers to hide: POIs, transit lines/labels and other clutter.
@@ -75,6 +79,24 @@ map.on("load", () => {
     map.on("mouseenter", layer, () => map.getCanvas().style.cursor = "pointer");
     map.on("mouseleave", layer, () => map.getCanvas().style.cursor = "");
   }
+});
+
+// ---- Live traffic: TomTom flow tiles above roads, below labels ----
+let trafficOn = true;
+function addTraffic() {
+  if (map.getLayer("traffic")) map.removeLayer("traffic");
+  if (map.getSource("traffic")) map.removeSource("traffic");
+  map.addSource("traffic", { type: "raster", tileSize: 256, // t= busts the tile cache on each refresh
+    tiles: [`https://api.tomtom.com/traffic/map/4/tile/flow/relative/{z}/{x}/{y}.png?key=${TOMTOM_KEY}&t=${Date.now()}`] });
+  const firstLabel = map.getStyle().layers.find(l => l.type === "symbol")?.id;
+  map.addLayer({ id: "traffic", type: "raster", source: "traffic", paint: { "raster-opacity": 0.8 },
+    layout: { visibility: trafficOn ? "visible" : "none" } }, firstLabel);
+}
+map.on("style.load", addTraffic); // fires on first load and after any style change
+setInterval(addTraffic, 2 * 60 * 1000);
+document.querySelector("#traffic-toggle input").addEventListener("change", e => {
+  trafficOn = e.target.checked;
+  if (map.getLayer("traffic")) map.setLayoutProperty("traffic", "visibility", trafficOn ? "visible" : "none");
 });
 
 // ---- Overpass fallback: one query per viewport, cached ----
