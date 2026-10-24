@@ -1,6 +1,5 @@
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
-import { fileURLToPath } from 'node:url';
 import { gzipSync } from 'node:zlib';
 import { BusFeed } from './lib/feed.mjs';
 import { StopCatalog } from './lib/stops.mjs';
@@ -71,7 +70,7 @@ export function createApp({ feed = new BusFeed({ apiKey: process.env.BODS_API_KE
   });
 }
 
-if (process.argv[1] && fileURLToPath(import.meta.url) === fileURLToPath(new URL(process.argv[1], 'file:'))) {
+if (import.meta.main) {
   const port = Number(process.env.PORT || 3000);
   const stops = new StopCatalog();
   const server = createApp({ stops });

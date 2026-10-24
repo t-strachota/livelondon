@@ -57,3 +57,11 @@ test('snapshot is side-effect free and converts at the rendering boundary', () =
   assert.ok(geojson.features.every(feature => Number.isFinite(feature.properties.weightKg)));
   assert.ok(geojson.features.every(feature => feature.geometry.coordinates.every(Number.isFinite)));
 });
+
+test('identical fractional-density refreshes retain the same vehicle IDs', () => {
+  const roads = [{ ...road, vehicles: 3.4 }];
+  const simulation = new TrafficSimulation({ roads, seed: 2 });
+  const ids = simulation.snapshot().vehicles.map(vehicle => vehicle.id);
+  for (let i = 0; i < 20; i++) simulation.updateRoads(roads);
+  assert.deepEqual(simulation.snapshot().vehicles.map(vehicle => vehicle.id), ids);
+});
