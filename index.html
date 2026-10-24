@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>London Map</title>
+<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
+<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<style>
+  html, body, #map { margin: 0; height: 100%; background: #f2f2ef; }
+  .maplibregl-popup-content { font: 13px/1.4 system-ui, sans-serif; padding: 8px 12px; }
+</style>
+</head>
+<body>
+<div id="map"></div>
+<script>
+const MAPTILER_KEY = "Piqlzte12zD4i2H9jha1";
+const SOURCE = "maptiler_planet"; // vector source name inside the streets-v2 style
+
+// Style layers to hide: POIs, transit lines/labels and other clutter.
+// Kept: roads, "Road labels", place/area labels, land, water, buildings.
+const HIDDEN_LAYERS = [
+  "Public", "Sport", "Education", "Tourism", "Culture", "Shopping", "Food", "Transport", "Park", "Healthcare", "Station",
+  "Major rail", "Major rail hatching", "Minor rail", "Minor rail hatching", "Railway tunnel", "Railway tunnel hatching",
+  "Ferry line", "Ferry", "Cablecar", "Cablecar dash", "Gondola", "Airport", "Airport gate",
+  "Oneway", "Housenumber", "Highway junction", "Highway shield", "River labels", "Ocean labels", "Lake labels",
+];
+
+const map = new maplibregl.Map({
+  container: "map",
+  style: `https://api.maptiler.com/maps/streets-v2/style.json?key=${MAPTILER_KEY}`,
+  center: [-0.128, 51.507],
+  zoom: 14,
+  minZoom: 10,
+  maxBounds: [[-0.65, 51.24], [0.42, 51.74]], // Greater London plus a margin
+  // Strictly 2D
+  pitch: 0, maxPitch: 0, dragRotate: false, touchPitch: false, pitchWithRotate: false,
+});
+map.touchZoomRotate.disableRotation();
+map.keyboard.disableRotation();
+map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "bottom-right");
+
+const busPaint = { "circle-radius": 4, "circle-color": "#d32f2f", "circle-stroke-color": "#fff", "circle-stroke-width": 1.5 };
+
+map.on("load", () => {
+  // Declutter: hide everything listed above (plus any US shield variants)
+  for (const { id } of map.getStyle().layers)
+    if (HIDDEN_LAYERS.includes(id) || id.startsWith("Highway shield")) map.setLayoutProperty(id, "visibility", "none");
+
+  // Buildings: flat 2D footprints from z14, no extrusion
+  map.removeLayer("Building 3D");
+  map.setLayerZoomRange("Building", 14, 24);
+  map.setPaintProperty("Building", "fill-color", "#ddd5c8");
+  map.setPaintProperty("Building", "fill-outline-color", "#c6bcac");
+  map.setPaintProperty("Building", "fill-opacity", 1);
+
+  // Bus stops from the vector tiles' poi layer
+  map.addLayer({
+    id: "bus-stops", type: "circle", source: SOURCE, "source-layer": "poi", minzoom: 15,
+    filter: ["all", ["==", ["get", "class"], "bus"], ["==", ["get", "subclass"], "bus_stop"]],
+    paint: busPaint,
+  });
+
+  // Fallback bus stops from Overpass (only filled if the tiles have none in view)
+  map.addSource("overpass-bus", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
+  map.addLayer({ id: "bus-stops-osm", type: "circle", source: "overpass-bus", minzoom: 15, paint: busPaint });
+
+  for (const layer of ["bus-stops", "bus-stops-osm"]) {
+    map.on("click", layer, e => {
+      new maplibregl.Popup({ closeButton: false })
+        .setLngLat(e.features[0].geometry.coordinates)
+        .setText(e.features[0].properties.name || "Bus stop")
+        .addTo(map);
+    });
+    map.on("mouseenter", layer, () => map.getCanvas().style.cursor = "pointer");
+    map.on("mouseleave", layer, () => map.getCanvas().style.cursor = "");
+  }
+});
+
+// ---- Overpass fallback: one query per viewport, cached ----
+const fetchedViews = new Set(), osmStops = new Map();
+
+map.on("idle", async () => {
+  if (map.getZoom() < 15 || !map.getLayer("bus-stops")) return;
+  if (map.queryRenderedFeatures({ layers: ["bus-stops"] }).length) return; // tiles have stops: no fallback needed
+
+  const b = map.getBounds(), r = v => v.toFixed(3);
+  const key = [b.getSouth(), b.getWest(), b.getNorth(), b.getEast()].map(r).join(",");
+  if (fetchedViews.has(key)) return;
+  fetchedViews.add(key);
+
+  try {
+    const query = `[out:json][timeout:25];node[highway=bus_stop](${key});out;`;
+    const res = await fetch("https://overpass-api.de/api/interpreter", { method: "POST", body: "data=" + encodeURIComponent(query) });
+    if (!res.ok) throw new Error(`Overpass HTTP ${res.status}`);
+    for (const n of (await res.json()).elements)
+      osmStops.set(n.id, { type: "Feature", geometry: { type: "Point", coordinates: [n.lon, n.lat] }, properties: { name: n.tags?.name } });
+    map.getSource("overpass-bus").setData({ type: "FeatureCollection", features: [...osmStops.values()] });
+  } catch (err) {
+    fetchedViews.delete(key); // allow a retry next time this view settles
+    console.warn("Bus stop fallback failed:", err);
+  }
+});
+</script>
+</body>
+</html>
