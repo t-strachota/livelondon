@@ -2,6 +2,7 @@ import * as maplibregl from '/vendor/maplibre-gl.mjs';
 import { BusMotionStore, pitchForZoom, toGeoJSON } from '/lib/motion.mjs';
 import { createTraffic } from '/traffic.js';
 import { createEstimatedCars } from '/estimated-cars.js';
+import { createFixtureSim } from '/sim-fixture.js';
 import { createCameras } from '/cameras.js';
 
 maplibregl.setWorkerUrl('/vendor/maplibre-gl-worker.mjs');
@@ -144,7 +145,7 @@ map.on('load', async () => {
     setDotOpacity();
   } catch { modelFailure(); }
   layers.traffic = createTraffic(map, overlayToggles[0]);
-  layers.cars = createEstimatedCars(map, overlayToggles[1]);
+  layers.cars = createEstimatedCars(map, overlayToggles[1], createFixtureSim()); // swap for Person A's sim once merged
   layers.cameras = createCameras(map, overlayToggles[2], document.querySelector('.panel'));
   updateBusVisibility();
   dirty = true;

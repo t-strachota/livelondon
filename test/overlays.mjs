@@ -7,6 +7,7 @@ import { GeoJSONVT } from '@maplibre/geojson-vt';
 import { fromGeojsonVt } from '@maplibre/vt-pbf';
 import { createApp } from '../server.mjs';
 import { makeBuses } from './fixtures.mjs';
+import { metres } from '../lib/traffic.mjs';
 
 await mkdir('test-results', { recursive: true });
 const server = createApp({ feed: { getSnapshot: async () => ({ status: 'live', configured: true, fetchedAt: new Date().toISOString(), buses: makeBuses(300) }) } });
@@ -71,6 +72,23 @@ try {
   await page.waitForTimeout(500);
   const moved = await page.evaluate(async () => (await window.londonBuses.map.getSource('estimated-cars').getData()).features.map(feature => feature.geometry.coordinates));
   assert.notDeepEqual(positions, moved);
+
+  // The layer only draws sim snapshots: pan/zoom, a style reload and a traffic refresh keep the same vehicles moving on.
+  const vehicles = () => page.evaluate(async () => Object.fromEntries((await window.londonBuses.map.getSource('estimated-cars').getData()).features
+    .map(feature => [feature.properties.id, { position: feature.geometry.coordinates, speed: feature.properties.speed }])));
+  await page.evaluate(() => { window.testSim = window.londonLayers.cars.sim; });
+  const start = await vehicles(), startedAt = Date.now();
+  await page.evaluate(() => { const { map } = window.londonBuses; map.jumpTo({ center: [-.127, 51.5072], zoom: 15 }); map.fire('style.load'); });
+  await page.evaluate(() => window.londonLayers.cars.refresh());
+  await page.waitForTimeout(800);
+  const end = await vehicles(), elapsed = (Date.now() - startedAt) / 1000;
+  assert.equal(await page.evaluate(() => window.londonLayers.cars.sim === window.testSim), true);
+  assert.ok(Object.keys(start).length > 0);
+  assert.deepEqual(Object.keys(end).sort(), Object.keys(start).sort());
+  for (const [id, { position, speed }] of Object.entries(start)) {
+    const distance = metres(position, end[id].position);
+    assert.ok(distance > 0 && distance <= speed * (elapsed + .2) + 5, `${id} moved ${distance.toFixed(1)} m in ${elapsed}s`);
+  }
   await page.screenshot({ path: 'test-results/cars-london-overview.png' });
 
   await page.locator('#toggle-traffic').check();

@@ -1,6 +1,5 @@
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
-import { fileURLToPath } from 'node:url';
 import { gzipSync } from 'node:zlib';
 import { BusFeed } from './lib/feed.mjs';
 import { StopCatalog } from './lib/stops.mjs';
@@ -13,6 +12,7 @@ const files = new Map([
   ['/config.js', ['public/config.js', 'text/javascript; charset=utf-8']],
   ['/traffic.js', ['public/traffic.js', 'text/javascript; charset=utf-8']],
   ['/estimated-cars.js', ['public/estimated-cars.js', 'text/javascript; charset=utf-8']],
+  ['/sim-fixture.js', ['public/sim-fixture.js', 'text/javascript; charset=utf-8']],
   ['/cameras.js', ['public/cameras.js', 'text/javascript; charset=utf-8']],
   ['/cameras.css', ['public/cameras.css', 'text/css; charset=utf-8']],
   ['/flow_table.json', ['flow_table.json', 'application/json']],
@@ -70,7 +70,7 @@ export function createApp({ feed = new BusFeed({ apiKey: process.env.BODS_API_KE
   });
 }
 
-if (process.argv[1] && fileURLToPath(import.meta.url) === fileURLToPath(new URL(process.argv[1], 'file:'))) {
+if (import.meta.main) {
   const port = Number(process.env.PORT || 3000);
   const stops = new StopCatalog();
   const server = createApp({ stops });
