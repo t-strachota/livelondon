@@ -8,12 +8,15 @@
 <link rel="preconnect" href="https://api.maptiler.com" crossorigin>
 <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
 <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<script src="https://unpkg.com/three@0.158.0/build/three.min.js"></script>
 <style>
   html, body, #map { margin: 0; height: 100%; background: #f2f2ef; }
   .maplibregl-popup-content { font: 13px/1.4 system-ui, sans-serif; padding: 8px 12px; }
-  #traffic-toggle, #cctv-toggle { position: absolute; top: 10px; left: 10px; z-index: 3; background: #fff; padding: 6px 10px; border-radius: 6px;
+  #traffic-toggle, #cctv-toggle, #vehicles-toggle, #estimate { position: absolute; top: 10px; left: 10px; z-index: 3; background: #fff; padding: 6px 10px; border-radius: 6px;
     box-shadow: 0 1px 4px #0003; font: 13px system-ui, sans-serif; cursor: pointer; }
   #cctv-toggle { top: 48px; }
+  #vehicles-toggle { top: 86px; }
+  #estimate { top: auto; bottom: 30px; cursor: default; line-height: 1.5; }
 
   /* ---- Live camera previews (same look as OSIRIS's CctvPreviews) ---- */
   :root { --cctv: #1a73e8; } /* blue writing and accents; map dots stay green (CCTV_COLOUR) */
@@ -79,6 +82,8 @@
 <div id="cctv-tiles"></div>
 <label id="traffic-toggle"><input type="checkbox"> Traffic</label>
 <label id="cctv-toggle"><input type="checkbox"> Live cameras</label>
+<label id="vehicles-toggle"><input type="checkbox"> 3D vehicles</label>
+<div id="estimate" aria-live="polite">Vehicle estimate: zoom in to 15+</div>
 <div id="cctv-viewer" hidden>
   <div class="cv-head"><span id="cv-name"></span><button id="cv-close" aria-label="Close camera">×</button></div>
   <div class="cctv-frame"><img id="cv-img" alt=""><div class="cctv-fx"></div><div class="cctv-badge live"><i></i>LIVE</div>
@@ -107,8 +112,8 @@ const map = new maplibregl.Map({
   zoom: 14,
   minZoom: 10,
   maxBounds: [[-0.65, 51.24], [0.42, 51.74]], // Greater London plus a margin
-  // Strictly 2D
-  pitch: 0, maxPitch: 0, dragRotate: false, touchPitch: false, pitchWithRotate: false,
+  // 2D; pitch and rotation are unlocked only for 3D vehicles at zoom 16+ (see setTilt)
+  pitch: 0, maxPitch: 0, dragRotate: false, touchPitch: false,
 });
 map.touchZoomRotate.disableRotation();
 map.keyboard.disableRotation();
@@ -176,7 +181,7 @@ document.querySelector("#traffic-toggle input").addEventListener("change", e => 
 const CCTV_COLOUR = "#00e676";
 const TILE = { w: 176, imgH: 99, labelH: 20, gap: 26 }, TILE_H = TILE.imgH + TILE.labelH;
 const MIN_ZOOM = 13, MAX_TILES = 8, TILE_REFRESH = 15000, VIEWER_REFRESH = 5000;
-const EDGE = 10, EDGE_TOP = 90, EDGE_BOTTOM = 40; // keep tiles clear of the toggles and zoom buttons
+const EDGE = 10, EDGE_TOP = 128, EDGE_BOTTOM = 40; // keep tiles clear of the toggles and zoom buttons
 let cctvData = { type: "FeatureCollection", features: [] }, cctvOn = false, hoveredCam = "", camerasRequested = false;
 const tiles = new Map(); // camera id -> { cam, el, timers }
 const tilesEl = document.getElementById("cctv-tiles");
@@ -355,6 +360,233 @@ document.querySelector("#cctv-toggle input").addEventListener("change", e => {
   if (cctvOn) loadCameras();
   for (const id of ["cctv-glow", "cctv-dots", "cctv-label"]) map.setLayoutProperty(id, "visibility", cctvOn ? "visible" : "none");
   recomputeTiles();
+});
+
+// ---- Estimated vehicles: TomTom speed ratio -> Greenshields density, cross-checked with the WebTRIS model ----
+const LANES = { motorway: 3, trunk: 3, primary: 2, secondary: 1, tertiary: 1, minor: 1 }; // road classes we count
+const MAJOR = ["motorway", "trunk", "primary", "secondary"];
+const MAX_PER_MIN = 9, MAX_PER_DAY = 2000, CACHE_MS = 3 * 60 * 1000, NEAR_M = 300, MAX_VEHICLES = 300, FALLBACK_KMH = 32; // 20 mph
+const flowCache = new Map(), callTimes = [], calls = { day: "", n: 0 };
+const estimateEl = document.getElementById("estimate");
+let flowTable = null, vehiclesOn = false, realBuses = null, roads = [], refreshId = 0, refreshTimer;
+fetch("flow_table.json").then(r => r.ok ? r.json() : null).then(t => { flowTable = t; refreshEstimate(); }).catch(() => {});
+
+// Flat-earth metres between [lng, lat] points; fine at street scale
+const metres = (a, b) => Math.hypot((b[0] - a[0]) * 111320 * Math.cos(a[1] * Math.PI / 180), (b[1] - a[1]) * 110540);
+
+// TomTom Flow Segment Data at one point: cached ~100 m / 3 min, max 9 calls a minute and 2,000 a day
+function flowAt(lat, lon) {
+  const key = `${lat.toFixed(3)},${lon.toFixed(3)}`, hit = flowCache.get(key), now = Date.now();
+  if (hit && now - hit.at < CACHE_MS) return Promise.resolve(hit);
+  while (callTimes.length && now - callTimes[0] > 60000) callTimes.shift();
+  const day = new Date().toISOString().slice(0, 10);
+  if (calls.day !== day) { calls.day = day; try { calls.n = +localStorage.getItem(`tomtom-flow-${day}`) || 0; } catch { calls.n = 0; } }
+  if (callTimes.length >= MAX_PER_MIN || calls.n >= MAX_PER_DAY) return Promise.resolve(hit || null); // stale beats nothing
+  callTimes.push(now);
+  calls.n++;
+  try { localStorage.setItem(`tomtom-flow-${day}`, calls.n); } catch {}
+  return fetch(`https://api.tomtom.com/traffic/services/4/flowSegmentData/absolute/10/json?point=${lat},${lon}&key=${TOMTOM_KEY}`)
+    .then(r => { if (!r.ok) throw new Error(`TomTom HTTP ${r.status}`); return r.json(); })
+    .then(({ flowSegmentData: d }) => {
+      const f = { at: Date.now(), ratio: Math.min(1, d.currentSpeed / d.freeFlowSpeed), kmh: d.currentSpeed };
+      flowCache.set(key, f);
+      return f;
+    })
+    .catch(err => { console.warn("TomTom flow failed:", err); return hit || null; });
+}
+
+// Rendered road lines cut to the runs of vertices inside the view
+function visibleRoads() {
+  const layers = map.getStyle().layers.filter(l => l["source-layer"] === "transportation" && l.type === "line").map(l => l.id);
+  const b = map.getBounds(), seen = new Set(), out = [];
+  for (const f of map.queryRenderedFeatures({ layers })) {
+    const cls = f.properties.class, lanes = LANES[cls], g = f.geometry;
+    if (!lanes) continue;
+    for (const line of g.type === "LineString" ? [g.coordinates] : g.type === "MultiLineString" ? g.coordinates : []) {
+      const key = cls + line[0] + line.at(-1); // casing and fill layers return the same line twice
+      if (seen.has(key)) continue;
+      seen.add(key);
+      let run = [];
+      for (const p of [...line, null]) {
+        if (p && b.contains(p)) { run.push(p); continue; }
+        if (run.length > 1) out.push({ cls, lanes, line: run, m: run.slice(1).reduce((s, q, i) => s + metres(run[i], q), 0) });
+        run = [];
+      }
+    }
+  }
+  return out;
+}
+
+const refreshSoon = () => { clearTimeout(refreshTimer); refreshTimer = setTimeout(refreshEstimate, 400); };
+map.on("load", refreshSoon);
+map.on("moveend", refreshSoon);
+
+async function refreshEstimate(tries = 0) {
+  const id = ++refreshId;
+  if (map.getZoom() < 15 || !map.getLayer("vehicles")) { // the layer exists once the style has loaded
+    estimateEl.textContent = "Vehicle estimate: zoom in to 15+";
+    roads = [];
+    return spawnVehicles();
+  }
+  if (!map.areTilesLoaded() && tries < 10) return void (refreshTimer = setTimeout(() => refreshEstimate(tries + 1), 300));
+  const view = visibleRoads(), c = map.getCenter(), pts = [[c.lng, c.lat]];
+  // View centre plus up to 8 points spread along the longest major roads
+  for (const r of view.filter(r => MAJOR.includes(r.cls)).sort((a, b) => b.m - a.m)) {
+    if (pts.length >= 9) break;
+    const p = r.line[r.line.length >> 1];
+    if (pts.every(q => metres(p, q) > NEAR_M)) pts.push(p);
+  }
+  const samples = (await Promise.all(pts.map(p => flowAt(p[1], p[0]).then(f => f && { ...f, p })))).filter(Boolean);
+  if (id !== refreshId) return; // the view moved on while we waited
+  if (!samples.length) { estimateEl.textContent = "Vehicle estimate: no live speed data (TomTom limit reached?)"; roads = []; return spawnVehicles(); }
+
+  const avg = samples.reduce((s, x) => s + x.ratio, 0) / samples.length, avgKmh = samples.reduce((s, x) => s + x.kmh, 0) / samples.length;
+  const now = new Date(), day = (now.getDay() + 6) % 7, hour = now.getHours(); // table days are Mon=0
+  const predictedFlow = r => flowTable?.table[day][hour][Math.min(9, Math.max(0, Math.round(r * 10) - 1))];
+  let total = 0;
+  for (const r of view) {
+    // Nearest sample within 300 m of the road sets its speed; otherwise the view average
+    let best = null, bestD = NEAR_M;
+    for (const s of samples) for (const p of r.line) { const d = metres(p, s.p); if (d < bestD) { bestD = d; best = s; } }
+    r.ratio = best ? best.ratio : avg;
+    r.kmh = best ? best.kmh : avgKmh;
+    let k = 120 * (1 - r.ratio); // Greenshields: veh per lane per km
+    const q = predictedFlow(r.ratio);
+    if (q != null) { // model density = flow / speed; trust the lower one when they disagree by > 2x
+      const kModel = q / Math.max(r.kmh, 5);
+      if (Math.max(k, kModel) > 2 * Math.min(k, kModel)) k = Math.min(k, kModel);
+    }
+    r.vehicles = k * r.lanes * r.m / 1000;
+    total += r.vehicles;
+  }
+  roads = view;
+  const flow = predictedFlow(avg);
+  estimateEl.innerHTML = `Estimated vehicles in view: <b>${Math.round(total)}</b><br>`
+    + `Avg speed ratio (estimated): ${avg.toFixed(2)} from ${samples.length} TomTom point${samples.length > 1 ? "s" : ""}<br>`
+    + `Predicted flow (estimated): ${flow != null ? Math.round(flow) + " veh/h/lane" : "n/a"}<br>`
+    + `Model MAE: ${flowTable ? flowTable.metrics.mae + " veh/h" : "n/a (run train.py)"} · TomTom calls today: ${calls.n}/${MAX_PER_DAY}`;
+  spawnVehicles();
+}
+
+// ---- 3D vehicles: two InstancedMeshes (cars, buses) in a MapLibre custom layer, zoom 16+ only ----
+const CAR_COLOURS = [0xf5f5f5, 0x263238, 0x90a4ae, 0x1565c0, 0x2e7d32, 0xfbc02d].map(c => new THREE.Color(c));
+const dummy = new THREE.Object3D();
+let vehicles = [], origin, scale, lastFrame = 0, tilted = false;
+
+// Local metres from the spawn origin: x east, y north
+function toLocal(p) {
+  const m = maplibregl.MercatorCoordinate.fromLngLat(p);
+  return [(m.x - origin.x) / scale, (origin.y - m.y) / scale];
+}
+
+function spawnVehicles() {
+  vehicles = [];
+  if (vehiclesOn && map.getZoom() >= 16 && (roads.length || realBuses)) {
+    origin = maplibregl.MercatorCoordinate.fromLngLat(map.getCenter());
+    scale = origin.meterInMercatorCoordinateUnits();
+    const f = Math.min(1, MAX_VEHICLES / roads.reduce((s, r) => s + r.vehicles, 0));
+    for (const r of roads) {
+      const want = r.vehicles * f, n = Math.floor(want) + (Math.random() < want % 1); // random rounding keeps the total right
+      const pts = r.line.map(toLocal), cum = [0];
+      for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1] + Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]));
+      const len = cum.at(-1);
+      if (len < 5) continue;
+      for (let i = 0; i < n && vehicles.length < MAX_VEHICLES; i++) vehicles.push({
+        pts, cum, len, s: Math.random() * len, dir: Math.random() < 0.5 ? 1 : -1, v: (r.kmh || FALLBACK_KMH) / 3.6,
+        lane: 1.75 + 3.5 * Math.floor(Math.random() * r.lanes), // metres left of travel, as UK traffic drives
+        bus: !realBuses && (r.cls === "primary" || r.cls === "secondary") && Math.random() < 0.05,
+        colour: CAR_COLOURS[Math.floor(Math.random() * CAR_COLOURS.length)],
+      });
+    }
+  }
+  map.triggerRepaint();
+}
+
+// Real buses (e.g. the teammate's BODS feed) replace the simulated ones: list of { lng, lat, bearing }, or null
+function renderBuses(list) {
+  realBuses = list;
+  spawnVehicles();
+}
+
+function stepVehicles(cars, buses) {
+  const now = performance.now(), dt = Math.min((now - lastFrame) / 1000, 0.1);
+  lastFrame = now;
+  let nc = 0, nb = 0;
+  for (const v of vehicles) {
+    v.s = (v.s + v.dir * v.v * dt + v.len) % v.len; // loop along the line
+    let i = 1;
+    while (v.cum[i] < v.s) i++;
+    const a = v.pts[i - 1], b = v.pts[i], seg = v.cum[i] - v.cum[i - 1] || 1, t = (v.s - v.cum[i - 1]) / seg;
+    const dx = (b[0] - a[0]) / seg * v.dir, dy = (b[1] - a[1]) / seg * v.dir;
+    dummy.position.set(a[0] + (b[0] - a[0]) * t - dy * v.lane, a[1] + (b[1] - a[1]) * t + dx * v.lane, 0);
+    dummy.rotation.set(0, 0, Math.atan2(dy, dx));
+    dummy.updateMatrix();
+    if (v.bus) buses.setMatrixAt(nb++, dummy.matrix);
+    else { cars.setMatrixAt(nc, dummy.matrix); cars.setColorAt(nc++, v.colour); }
+  }
+  if (origin) for (const b of realBuses || []) {
+    if (nb >= MAX_VEHICLES || !vehiclesOn || map.getZoom() < 16) break;
+    const [x, y] = toLocal([b.lng, b.lat]);
+    dummy.position.set(x, y, 0);
+    dummy.rotation.set(0, 0, (90 - (b.bearing || 0)) * Math.PI / 180); // compass bearing -> angle from east
+    dummy.updateMatrix();
+    buses.setMatrixAt(nb++, dummy.matrix);
+  }
+  cars.count = nc;
+  buses.count = nb;
+  cars.instanceMatrix.needsUpdate = buses.instanceMatrix.needsUpdate = true;
+  if (cars.instanceColor) cars.instanceColor.needsUpdate = true;
+}
+
+const vehicleLayer = {
+  id: "vehicles", type: "custom", renderingMode: "3d",
+  onAdd(map, gl) {
+    this.camera = new THREE.Camera();
+    this.scene = new THREE.Scene();
+    this.scene.add(new THREE.AmbientLight(0xffffff, 1.6));
+    const sun = new THREE.DirectionalLight(0xffffff, 1.6);
+    sun.position.set(0.5, -1, 2);
+    this.scene.add(sun);
+    // Boxes sit on the road (z up); DoubleSide because the y flip below reverses face winding
+    const mesh = (len, w, h, colour) => {
+      const m = new THREE.InstancedMesh(new THREE.BoxGeometry(len, w, h).translate(0, 0, h / 2),
+        new THREE.MeshLambertMaterial({ color: colour, side: THREE.DoubleSide }), MAX_VEHICLES);
+      m.count = 0;
+      m.frustumCulled = false; // instances are spread far from the geometry's own bounds
+      this.scene.add(m);
+      return m;
+    };
+    this.cars = mesh(4.5, 1.8, 1.5, 0xffffff);
+    this.buses = mesh(12, 2.5, 3.2, 0xd32f2f);
+    this.renderer = new THREE.WebGLRenderer({ canvas: map.getCanvas(), context: gl, antialias: true });
+    this.renderer.autoClear = false;
+  },
+  render(gl, matrix) {
+    if (!origin) return;
+    stepVehicles(this.cars, this.buses);
+    this.camera.projectionMatrix = new THREE.Matrix4().fromArray(matrix)
+      .multiply(new THREE.Matrix4().makeTranslation(origin.x, origin.y, origin.z).scale(new THREE.Vector3(scale, -scale, scale)));
+    this.renderer.resetState();
+    this.renderer.render(this.scene, this.camera);
+    if (vehicles.length) map.triggerRepaint(); // keep animating only while there is something to move
+  },
+};
+map.on("style.load", () => map.addLayer(vehicleLayer, map.getStyle().layers.find(l => l.type === "symbol")?.id));
+
+// Pitch (up to 60) and rotation only with 3D vehicles on at zoom 16+; plain 2D otherwise
+function setTilt() {
+  const on = vehiclesOn && map.getZoom() >= 16;
+  if (on === tilted) return;
+  tilted = on;
+  map.setMaxPitch(on ? 60 : 0);
+  if (on) { map.dragRotate.enable(); map.touchPitch.enable(); map.touchZoomRotate.enableRotation(); map.keyboard.enableRotation(); }
+  else { map.dragRotate.disable(); map.touchPitch.disable(); map.touchZoomRotate.disableRotation(); map.keyboard.disableRotation(); map.setBearing(0); }
+}
+map.on("zoomend", setTilt);
+document.querySelector("#vehicles-toggle input").addEventListener("change", e => {
+  vehiclesOn = e.target.checked;
+  setTilt();
+  spawnVehicles();
 });
 
 // ---- Overpass fallback: one query per viewport, cached ----
