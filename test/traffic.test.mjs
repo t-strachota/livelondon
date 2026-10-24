@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { FlowClient, clipLine, extractRoads, estimateTraffic, spawnCars, stepCars, londonTime } from '../lib/traffic.mjs';
+import { FlowClient, clipLine, extractRoads, estimateTraffic, londonTime } from '../lib/traffic.mjs';
+import { TrafficSimulation, snapshotToGeoJSON } from '../lib/traffic-simulation.mjs';
 
 const line = [[-.13, 51.507], [-.126, 51.507]];
 const road = { id: 'road', cls: 'primary', lanes: 2, line, m: 277, kmh: 20, vehicles: 1000 };
@@ -35,20 +36,22 @@ test('the supplied calibration table has the expected dimensions and nonnegative
 });
 
 test('estimated traffic has at most 300 car dots and never creates simulated buses', () => {
-  const cars = spawnCars([road, { ...road, id: 'other' }], () => .25);
-  assert.equal(cars.length, 300);
-  const features = stepCars(cars, .1).features;
+  const simulation = new TrafficSimulation({ roads: [road, { ...road, id: 'other' }], seed: 25 });
+  assert.equal(simulation.snapshot().vehicles.length, 300);
+  const features = snapshotToGeoJSON(simulation.snapshot()).features;
   assert.ok(features.every(feature => feature.properties.kind === 'estimated-car' && feature.properties.estimated === true));
   assert.ok(features.every(feature => feature.geometry.coordinates.every(Number.isFinite)));
 });
 
 test('dots follow road speeds, respect zero speed and use the indicated one-way direction', () => {
-  const stopped = spawnCars([{ ...road, kmh: 0, oneway: 1 }], () => .25);
-  const first = stepCars(stopped, 0).features[0].geometry.coordinates;
-  assert.deepEqual(stepCars(stopped, .1).features[0].geometry.coordinates, first);
-  const moving = spawnCars([{ ...road, oneway: 1 }], () => .25);
-  const before = stepCars(moving, 0).features[0].geometry.coordinates;
-  const after = stepCars(moving, .1).features[0].geometry.coordinates;
+  const stopped = new TrafficSimulation({ roads: [{ ...road, kmh: 0, oneway: 1 }], seed: 25 });
+  const first = snapshotToGeoJSON(stopped.snapshot()).features[0].geometry.coordinates;
+  stopped.step();
+  assert.deepEqual(snapshotToGeoJSON(stopped.snapshot()).features[0].geometry.coordinates, first);
+  const moving = new TrafficSimulation({ roads: [{ ...road, oneway: 1 }], seed: 25 });
+  const before = snapshotToGeoJSON(moving.snapshot()).features[0].geometry.coordinates;
+  moving.step();
+  const after = snapshotToGeoJSON(moving.snapshot()).features[0].geometry.coordinates;
   assert.ok(after[0] > before[0]);
 });
 

@@ -17,6 +17,7 @@ const files = new Map([
   ['/cameras.css', ['public/cameras.css', 'text/css; charset=utf-8']],
   ['/flow_table.json', ['flow_table.json', 'application/json']],
   ['/lib/traffic.mjs', ['lib/traffic.mjs', 'text/javascript; charset=utf-8']],
+  ['/lib/traffic-simulation.mjs', ['lib/traffic-simulation.mjs', 'text/javascript; charset=utf-8']],
   ['/bus-layer.js', ['public/bus-layer.js', 'text/javascript; charset=utf-8']],
   ['/styles.css', ['public/styles.css', 'text/css; charset=utf-8']],
   ['/lib/motion.mjs', ['lib/motion.mjs', 'text/javascript; charset=utf-8']],
