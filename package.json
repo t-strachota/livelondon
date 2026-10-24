@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node --use-env-proxy --env-file-if-exists=.env server.mjs",
     "test": "node --test test/*.test.mjs",
-    "test:browser": "node test/browser.mjs"
+    "test:browser": "node test/browser.mjs",
+    "test:overlays": "node test/overlays.mjs"
   },
   "engines": {
     "node": ">=24.5"

@@ -1,0 +1,57 @@
+/* Live camera previews (same look as OSIRIS's CctvPreviews) ---- */
+  :root { --cctv: #1a73e8; } /* blue writing and accents; map dots stay green (CCTV_COLOUR) */
+  #cctv-tiles { position: absolute; inset: 0; z-index: 2; overflow: hidden; pointer-events: none; }
+  .cctv-wrap { position: absolute; left: 0; top: 0; width: 176px; pointer-events: auto; will-change: transform; }
+  .cctv-tile { display: block; width: 176px; padding: 0; border: 0; background: #fff; border-radius: 10px; overflow: hidden; box-shadow: 0 2px 10px rgba(0,0,0,.25);
+    text-align: left; cursor: pointer;
+    transform-origin: 50% 100%; transition: transform .18s cubic-bezier(.16,1,.3,1), filter .18s ease; }
+  .cctv-tile:hover, .cctv-tile:focus-visible { outline: none; transform: translateY(-3px);
+    filter: brightness(1.12) drop-shadow(0 0 10px color-mix(in srgb, var(--cctv) 30%, transparent)); }
+  .cctv-frame { position: relative; height: 99px; overflow: hidden; background: #fff; }
+  .cctv-frame img { display: block; width: 100%; height: 100%; object-fit: contain; opacity: 0; transition: opacity .5s; }
+  .cctv-frame.loaded img { opacity: 1; }
+  .cctv-fx { position: absolute; inset: 0; pointer-events: none; box-shadow: inset 0 0 22px rgba(0,0,0,.85); /* scanlines + vignette */
+    background-image: repeating-linear-gradient(0deg, rgba(0,0,0,.22) 0 1px, transparent 1px 3px); }
+  .cctv-corner { position: absolute; width: 10px; height: 10px; pointer-events: none; border: 0 solid color-mix(in srgb, var(--cctv) 80%, transparent); }
+  .cctv-corner.tl { left: 0; top: 0; border-width: 1px 0 0 1px; } .cctv-corner.tr { right: 0; top: 0; border-width: 1px 1px 0 0; }
+  .cctv-corner.bl { left: 0; bottom: 0; border-width: 0 0 1px 1px; } .cctv-corner.br { right: 0; bottom: 0; border-width: 0 1px 1px 0; }
+  .cctv-badge { position: absolute; top: 6px; display: flex; align-items: center; gap: 4px; padding: 1px 4px; background: rgba(0,0,0,.7);
+    font: 7px/1.4 ui-monospace, monospace; letter-spacing: .18em; color: rgba(255,255,255,.75); pointer-events: none; }
+  .cctv-badge.live { left: 6px; } .cctv-badge.open { right: 6px; color: var(--cctv); opacity: 0; transition: opacity .2s; }
+  .cctv-tile:hover .cctv-badge.open { opacity: 1; }
+  .cctv-badge i { width: 4px; height: 4px; border-radius: 50%; background: #ff3d3d; animation: cctv-pulse 2s ease-in-out infinite; }
+  .cctv-linking { position: absolute; inset: 0; overflow: hidden; background: #f1f3f4; display: flex; align-items: center; justify-content: center;
+    font: 7px ui-monospace, monospace; letter-spacing: .25em; color: rgba(0,0,0,.35); }
+  .cctv-linking::before { content: ""; position: absolute; left: 0; right: 0; height: 32px; animation: scan-line-sweep 1.8s ease-in-out infinite;
+    background: linear-gradient(to bottom, transparent, color-mix(in srgb, var(--cctv) 18%, transparent), transparent); }
+  .cctv-frame.loaded .cctv-linking { display: none; }
+  .cctv-label { display: flex; align-items: center; gap: 6px; height: 20px; padding: 0 6px; box-sizing: border-box; background: #fff; color: var(--cctv);
+    font: 8px ui-monospace, monospace; letter-spacing: .12em; text-transform: uppercase; white-space: nowrap; overflow: hidden; }
+  .cctv-label i { flex: none; width: 4px; height: 4px; border-radius: 50%; background: var(--cctv); box-shadow: 0 0 5px var(--cctv); }
+  .cctv-label span { overflow: hidden; text-overflow: ellipsis; }
+  /* Line from tile to its marker; place() sets data-flip so only the marker-side stem shows */
+  .cctv-stem { position: absolute; left: 50%; width: 1px; height: 21px; pointer-events: none; }
+  .cctv-stem.down { top: 119px; background: linear-gradient(to bottom, color-mix(in srgb, var(--cctv) 70%, transparent), color-mix(in srgb, var(--cctv) 10%, transparent)); }
+  .cctv-stem.up { bottom: 119px; background: linear-gradient(to top, color-mix(in srgb, var(--cctv) 70%, transparent), color-mix(in srgb, var(--cctv) 10%, transparent)); }
+  [data-flip="above"] .cctv-stem.up, [data-flip="below"] .cctv-stem.down, [data-flip="none"] .cctv-stem { display: none; }
+  @keyframes scan-line-sweep { 0% { transform: translateY(-100%); opacity: 0; } 50% { opacity: 1; } 100% { transform: translateY(400%); opacity: 0; } }
+  @keyframes cctv-pulse { 50% { opacity: .3; } }
+
+  /* Full camera viewer (opens on click, 5 s refresh like OSIRIS's CameraViewer) */
+  #cctv-viewer { position: absolute; top: 10px; right: 10px; z-index: 4; width: min(480px, calc(100% - 20px)); max-width: 100vw; max-height: 100vh;
+    display: flex; flex-direction: column; background: #fff; border-radius: 12px; overflow: hidden;
+    box-shadow: 0 10px 40px rgba(0,0,0,.35); font: 11px ui-monospace, monospace; color: #555; }
+  #cctv-viewer[hidden] { display: none; }
+  .cv-head { display: flex; align-items: center; gap: 8px; padding: 6px 8px; color: var(--cctv); text-transform: uppercase; letter-spacing: .12em;
+    cursor: move; touch-action: none; user-select: none; }
+  /* Corner grip to resize (works for mouse and touch, unlike CSS resize) */
+  .cv-grip { position: absolute; right: 0; bottom: 0; width: 16px; height: 16px; cursor: nwse-resize; touch-action: none;
+    background: linear-gradient(135deg, transparent 50%, color-mix(in srgb, var(--cctv) 70%, transparent) 50% 60%, transparent 60% 70%,
+      color-mix(in srgb, var(--cctv) 70%, transparent) 70% 80%, transparent 80%); }
+  .cv-head span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .cv-head button { background: none; border: 0; color: #555; font-size: 18px; line-height: 1; cursor: pointer; }
+  #cctv-viewer .cctv-frame { height: auto; aspect-ratio: 16 / 9; flex: 1 1 auto; min-height: 0; }
+  #cctv-viewer .cctv-frame img { object-fit: contain; } /* whole frame visible at any panel shape */
+  .cv-meta { padding: 6px 8px; color: #666; }
+  .cv-meta a { color: var(--cctv); }
+  @media (prefers-reduced-motion: reduce) { .cctv-tile { transition: none; } .cctv-tile:hover { transform: none; } }

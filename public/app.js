@@ -1,5 +1,8 @@
 import * as maplibregl from '/vendor/maplibre-gl.mjs';
 import { BusMotionStore, pitchForZoom, toGeoJSON } from '/lib/motion.mjs';
+import { createTraffic } from '/traffic.js';
+import { createEstimatedCars } from '/estimated-cars.js';
+import { createCameras } from '/cameras.js';
 
 maplibregl.setWorkerUrl('/vendor/maplibre-gl-worker.mjs');
 
@@ -28,6 +31,13 @@ let snapshot = null, requestFailed = false, modelsReady = false, modelLayer;
 let dirty = true, dataDirty = true, wasMoving = false;
 let renderedBuses = [], lastRender = 0, lastDots = 0, lastStatus = 0;
 let popup, selectedBus = null, pollTimer, polling = false, pollController;
+const overlayToggles = ['traffic', 'cars', 'cameras'].map(name => {
+  const toggle = document.querySelector(`#toggle-${name}`);
+  try { toggle.checked = localStorage.getItem(`london-map:${name}`) === 'on'; } catch { /* Default off. */ }
+  toggle.addEventListener('change', () => { try { localStorage.setItem(`london-map:${name}`, toggle.checked ? 'on' : 'off'); } catch { /* Optional persistence. */ } });
+  return toggle;
+});
+const layers = {};
 
 const map = new maplibregl.Map({
   container: 'map',
@@ -43,7 +53,7 @@ map.keyboard.disableRotation();
 map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'bottom-right');
 map.addControl(new maplibregl.AttributionControl({
   compact: true,
-  customAttribution: 'Bus data: TfL / <a href="https://www.gov.uk/guidance/find-and-use-bus-open-data" target="_blank" rel="noopener">DfT BODS</a> · <a href="https://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/" target="_blank" rel="noopener">OGL v3.0</a>',
+  customAttribution: 'Traffic: TomTom · Cameras: TfL · Bus data: TfL / <a href="https://www.gov.uk/guidance/find-and-use-bus-open-data" target="_blank" rel="noopener">DfT BODS</a> · <a href="https://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/" target="_blank" rel="noopener">OGL v3.0</a>',
 }), 'bottom-right');
 
 map.on('zoom', () => {
@@ -133,6 +143,9 @@ map.on('load', async () => {
     modelsReady = true;
     setDotOpacity();
   } catch { modelFailure(); }
+  layers.traffic = createTraffic(map, overlayToggles[0]);
+  layers.cars = createEstimatedCars(map, overlayToggles[1]);
+  layers.cameras = createCameras(map, overlayToggles[2], document.querySelector('.panel'));
   updateBusVisibility();
   dirty = true;
   void poll();
@@ -236,6 +249,7 @@ function updatePopup(content, bus) {
 }
 
 map.on('click', event => {
+  if (map.getLayer('cctv-dots') && map.queryRenderedFeatures(event.point, { layers: ['cctv-dots'] }).length) return;
   if (!busesEnabled) return;
   const bus = busAt(event.point);
   popup?.remove();
@@ -291,3 +305,4 @@ map.on('load', () => { stopTimer = setTimeout(fetchStops, 500); });
 
 // Read-only state for browser checks and map debugging.
 window.londonBuses = { map, get enabled() { return busesEnabled; }, get buses() { return renderedBuses; }, get modelsReady() { return modelsReady; }, get modelCount() { return modelLayer?.meshes?.[0]?.count ?? 0; } };
+window.londonLayers = layers;

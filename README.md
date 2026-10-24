@@ -1,6 +1,6 @@
 # London live buses
 
-Live TfL bus GPS positions on a London street map. Zoomed-out buses are red dots; between zoom 16 and 17 they crossfade into small 3D double-deckers, while the map tilts gradually to 40 degrees. Grey dots are bus stops. Click a bus to see its route, destination, vehicle and GPS recording time.
+Live TfL bus GPS positions, estimated car traffic, traffic flow colours and JamCam snapshots on one London map. Zoomed-out buses are red dots; between zoom 16 and 17 they crossfade into small 3D double-deckers, while the map tilts gradually to 40 degrees. Grey dots are bus stops. Click a bus to see its route, destination, vehicle and GPS recording time.
 
 ## Run locally
 
@@ -20,7 +20,7 @@ Open **http://localhost:3000**. Set `PORT` in `.env` if needed. The app is serve
 
 ## Map layers
 
-Use the **Live TfL buses** switch in the map panel to show or hide the bus overlay. It starts enabled and remembers your selection in this browser. Turning it off hides the dots, 3D buses, stop markers and bus information, closes bus popups, pauses bus requests, and restores a flat map. Turning it on immediately loads fresh positions and restores the zoom-dependent bus models and tilt. The basemap remains available throughout.
+Use the **Live TfL buses** switch in the map panel to show or hide the bus overlay. It starts enabled and remembers your selection in this browser. Turning it off hides the dots, 3D buses, stop markers and bus information, closes bus popups, pauses bus requests, and restores a flat map. Turning it on immediately loads fresh positions and restores the zoom-dependent bus models and tilt. The basemap remains available throughout. **Traffic flow**, **Estimated cars**, and **Live cameras** are independent switches, initially off. All four choices are remembered. Estimated cars remain available when buses are hidden; cars and cameras keep the main map’s bus-controlled 0–40° tilt.
 
 ## API keys and configuration
 
@@ -30,10 +30,11 @@ The shared project keys are included below as requested. The BODS key is also in
 | --- | --- | --- |
 | DfT Bus Open Data Service (BODS) | `e5f1a3ff2cedd7e7cdd90c9eb38c58741a0b9ea3` | Live TfL bus GPS positions; used by the Node server. |
 | MapTiler | `Piqlzte12zD4i2H9jha1` | Streets, buildings, road labels and basemap tiles in the browser. |
-| TfL Unified API | No key needed at this usage level | Physical bus stops, route memberships and compass directions. |
+| TomTom Traffic | `CPnPmYj0K9TjSsJsQ7cQp3NJ6vjm0c8C` | Browser traffic tiles and sampled current/free-flow speeds. |
+| TfL Unified API | `f8f5ffa16163428b8f2ceaa86afdb967` | Optional key for higher request limits; stop and JamCam requests currently work anonymously. |
 | OpenStreetMap / Overpass | No key | Fallback display of bus-stop markers. |
 
-To replace a key, edit `BODS_API_KEY` in `.env` or `MAPTILER_KEY` in `public/app.js`. Changing the BODS key requires restarting `npm start`; changing the MapTiler key requires refreshing the page.
+To replace a key, edit `BODS_API_KEY` in `.env` or `MAPTILER_KEY` in `public/app.js`. TomTom is configured in `public/config.js`. The shared TfL key above is optional and does not replace the BODS key. Changing the BODS key requires restarting `npm start`; changing the MapTiler key requires refreshing the page.
 
 | Setting | Default / behaviour |
 | --- | --- |
@@ -68,19 +69,47 @@ Initial route-stop loading can take about a minute. During loading, buses contin
 
 The GPS feed and route-specific stop catalog are handled by the server. The BODS key never appears in API responses or frontend assets. The map retains its existing public MapTiler browser key. The local server binds to loopback. Deployment needs a Node-capable host; publishing only static files will not run the feed.
 
+## Estimated traffic and cameras
+
+The black moving dots represent **estimated road traffic**, not GPS-tracked cars. They appear at all map zooms, including the London overview, using road geometry available in the basemap at that zoom. At overview zooms this primarily covers major roads. The estimated count is shown separately from the **maximum 300 illustrative dots**; dots are not a one-to-one count of actual cars. Real buses always come from the existing BODS implementation; the cars branch’s synthetic buses and 3D car boxes were removed.
+
+The estimator retains the cars branch’s method:
+
+1. Sample TomTom Flow Segment Data at the viewport centre and up to eight spread-out major-road points. A nearest sample within 300 m sets each road’s speed; other roads use the view average.
+2. Estimate density with `120 * (1 - currentSpeed / freeFlowSpeed)` vehicles per lane per kilometre, multiplied by mapped road length and assumed lane count (motorway/trunk 3, primary 2, others 1).
+3. Cross-check with `flow_table.json`: predicted flow divided by speed; when the densities differ by more than 2×, use the lower density. Lookups use London weekday/hour. Invalid or missing speeds are excluded; zero speed keeps dots stationary.
+
+Speed samples are cached for three minutes. The application applies guards of **9 speed-data requests per minute and 2,000 per day**; these are application limits, not a guarantee about the provider’s account quota. Cached speeds can be shown when limits or upstream errors prevent refreshing. Traffic raster tiles refresh every two minutes. Turning an overlay off stops its polling/animation independently of the others.
+
+`train.py` and the provided calibration table come from the cars branch. The stored model uses 30 WebTRIS sites, 78,308 rows from 15 March–11 April 2026, holdout MAE 139.2 veh/h/lane and R² 0.702. These are historical motorway/major-road calibration metrics, not validation of individual urban vehicle locations. Running the map does not require retraining or Python packages.
+
+Optional retraining:
+
+```sh
+pip install scikit-learn numpy
+python train.py
+```
+
+WebTRIS is unauthenticated at `https://webtris.nationalhighways.co.uk/api/v1.0`: `/sites` and `/reports/{start_date}/to/{end_date}/Daily?sites=<ID>&page=1&page_size=100` (dates `DDMMYYYY`). The script locates a recent historical training window and exports the table consumed by the map.
+
+Live cameras use `https://api.tfl.gov.uk/Place/Type/JamCam`. Green camera markers show up to eight nearby preview cards from zoom 13. Previews refresh every 15 seconds; clicking opens a draggable/resizable viewer refreshing every five seconds. Images are snapshots rather than a video stream. Turning cameras off closes the viewer and clears image timers. The map places cards around its controls and shows complete camera frames.
+
 ## Checks
 
 ```sh
 npm test
 npx playwright install chromium --only-shell
 npm run test:browser
+npm run test:overlays
 ```
 
-Unit and HTTP tests cover XML parsing, freshness, caching, outage recovery, full-interval interpolation, no overshoot, stop jitter, confirmed departures, route ownership, night routes, headings, route changes, stop pagination and cache reuse. Browser tests use clearly isolated fixtures to check WebGL rendering, zoom crossfades, tilt, popups, culling, 8,000 overview vehicles and the 3D fallback. Screenshots are written to ignored `test-results/`. Set `LIVE_URL=http://localhost:3000` when running browser checks to also verify the running authenticated live map.
+Unit and HTTP tests cover XML parsing, freshness, caching, outage recovery, full-interval interpolation, no overshoot, stop jitter, confirmed departures, route ownership, night routes, headings, route changes, stop pagination and cache reuse. Traffic tests also cover viewport clipping, road deduplication, calibration dimensions, London time, the 300-car cap, zero speeds, request limits and cached error recovery. Browser tests use isolated map, speed and camera fixtures to check WebGL rendering, independent toggles, saved selections, paused requests, camera preview placement, viewer drag/resize, overview car movement, 8,000 bus dots and the 3D fallback. Screenshots are written to ignored `test-results/`. Set `LIVE_URL=http://localhost:3000` when running the bus browser checks to also verify the running authenticated live map.
 
 ## Data credits
 
 - Bus locations: TfL iBus via DfT Bus Open Data Service, [Open Government Licence v3.0](https://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/).
-- Route-to-stop memberships: Transport for London Unified API.
+- Route-to-stop memberships and JamCam snapshots: Transport for London Unified API.
+- Traffic flow and sampled speeds: TomTom.
+- Historical training counts and speeds: National Highways WebTRIS.
 - Basemap: MapTiler and OpenStreetMap contributors, as credited on the map.
 - Bus stops: OpenStreetMap contributors via map tiles and Overpass.

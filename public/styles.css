@@ -5,6 +5,13 @@ body { font-family: system-ui, -apple-system, sans-serif; color: #242923; }
 .bus-popup small { display: block; color: #626961; margin-top: 6px; }
 .panel { position: absolute; z-index: 2; top: 20px; left: 20px; width: min(272px, calc(100vw - 72px)); padding: 18px; border: 1px solid #dddcd5; border-radius: 14px; background: #fffffff0; box-shadow: 0 4px 24px #28352614; backdrop-filter: blur(12px); }
 .panel h1 { margin: 0 0 13px; font-size: 21px; letter-spacing: -.5px; }
+.panel { z-index: 3; max-height: calc(100% - 80px); overflow-y: auto; }
+.overlay-info { margin-top: 14px; padding-top: 12px; border-top: 1px solid #e8e8e0; }
+.overlay-info details { margin-top: 8px; font-size: 11px; color: #697066; }
+.overlay-info summary { cursor: pointer; }
+.dot.car { background: #000; margin-right: 3px; }
+.panel .layer-toggle { margin-bottom: 8px; padding-bottom: 8px; }
+#camera-status { color: #357343; }
 .layer-toggle { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 2px 0 14px; margin-bottom: 14px; border-bottom: 1px solid #e8e8e0; cursor: pointer; font-size: 13px; font-weight: 600; }
 .layer-toggle input { appearance: none; position: relative; width: 38px; height: 22px; margin: 0; border: 0; border-radius: 20px; background: #b6bcb2; cursor: pointer; flex: 0 0 auto; transition: background .15s; }
 .layer-toggle input::before { content: ''; position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%; background: white; box-shadow: 0 1px 3px #0002; transition: transform .15s; }
