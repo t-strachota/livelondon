@@ -1,19 +1,46 @@
 import { TOMTOM_KEY } from '/config.js';
-import { FlowClient, extractRoads, estimateTraffic, TrafficSimulation, metres } from '/lib/traffic.mjs';
+import { FlowClient, extractRoads, estimateTraffic, metres } from '/lib/traffic.mjs';
 
-export function createEstimatedCars(map, toggle) {
+const empty = () => ({ type: 'FeatureCollection', features: [] });
+
+// Draws simulation snapshots only: vehicles are keyed by id, and nothing here creates, resets or moves them.
+export function createCarRenderer(map) {
+  const features = new Map();
+  const data = () => ({ type: 'FeatureCollection', features: [...features.values()] });
+  return {
+    renderSnapshot(snapshot) {
+      const seen = new Set();
+      for (const vehicle of snapshot.vehicles) {
+        const { id, type, weightKg: weight, speedMps: speed, bearing: heading } = vehicle;
+        const position = [vehicle.longitude, vehicle.latitude];
+        seen.add(id);
+        const feature = features.get(id);
+        if (feature) { feature.geometry.coordinates = position; Object.assign(feature.properties, { speed, heading }); }
+        else features.set(id, { type: 'Feature', geometry: { type: 'Point', coordinates: position }, properties: { id, type, weight, speed, heading, estimated: true, kind: 'estimated-car' } });
+      }
+      for (const id of features.keys()) if (!seen.has(id)) features.delete(id);
+      map.getSource('estimated-cars')?.setData(data());
+    },
+    clear() { features.clear(); map.getSource('estimated-cars')?.setData(empty()); },
+    get data() { return data(); },
+    get count() { return features.size; },
+  };
+}
+
+// Inject the headless core: this module owns scheduling and rendering, not vehicle state.
+// Created once by the caller; map moves, style reloads and traffic refreshes only feed it new inputs.
+export function createEstimatedCars(map, toggle, sim) {
   const info = document.querySelector('#car-info'), summary = document.querySelector('#car-summary');
   const details = document.querySelector('#car-details');
   let storage;
   try { storage = localStorage; } catch { /* No persistence available. */ }
   const client = new FlowClient({ key: TOMTOM_KEY, storage });
+  const renderer = createCarRenderer(map);
   let enabled = false, model = null, controller, generation = 0, refreshTimer, periodicTimer, animation;
-  const simulation = new TrafficSimulation();
-  let lastFrame = 0, lastPaint = 0, accumulator = 0, modelPromise;
-  const empty = () => ({ type: 'FeatureCollection', features: [] });
+  let lastFrame = 0, lastPaint = 0, pending = 0, modelPromise;
 
   function addLayers() {
-    if (!map.getSource('estimated-cars')) map.addSource('estimated-cars', { type: 'geojson', data: empty() });
+    if (!map.getSource('estimated-cars')) map.addSource('estimated-cars', { type: 'geojson', data: enabled ? renderer.data : empty(), promoteId: 'id' });
     if (!map.getLayer('estimated-cars')) map.addLayer({
       id: 'estimated-cars', type: 'circle', source: 'estimated-cars',
       layout: { visibility: enabled ? 'visible' : 'none' },
@@ -46,11 +73,10 @@ export function createEstimatedCars(map, toggle) {
     if (!enabled || id !== generation) return;
     const estimate = estimateTraffic(roads, samples, model);
     if (!estimate) { summary.textContent = 'Traffic estimates unavailable · retry after moving the map'; return; }
-    simulation.setTraffic(estimate);
-    map.getSource('estimated-cars').setData(simulation.snapshot());
+    sim.updateRoads(estimate.roads);
     summary.textContent = `${Math.round(estimate.total).toLocaleString()} estimated road vehicles in view`;
     const stale = samples.some(sample => sample.stale);
-    details.textContent = `${simulation.cars.length} illustrative black dots · speed ratio ${estimate.ratio.toFixed(2)} from ${samples.length} sample(s)${stale ? ' · cached speeds' : ''}. Predicted flow: ${estimate.flow == null ? 'unavailable' : Math.round(estimate.flow) + ' veh/h/lane'}. Model MAE: ${model?.metrics?.mae ?? 'unavailable'} veh/h/lane. Speed-data calls: ${client.calls.n}/2,000 today.`;
+    details.textContent = `${sim.snapshot().vehicles.length} illustrative black dots · speed ratio ${estimate.ratio.toFixed(2)} from ${samples.length} sample(s)${stale ? ' · cached speeds' : ''}. Predicted flow: ${estimate.flow == null ? 'unavailable' : Math.round(estimate.flow) + ' veh/h/lane'}. Model MAE: ${model?.metrics?.mae ?? 'unavailable'} veh/h/lane. Speed-data calls: ${client.calls.n}/2,000 today.`;
   }
 
   function refreshSoon() {
@@ -58,16 +84,17 @@ export function createEstimatedCars(map, toggle) {
     clearTimeout(refreshTimer);
     refreshTimer = setTimeout(refresh, 400);
   }
+  // The one loop: advance the sim on its fixed timestep, then hand the snapshot to the renderer (at most 10 paints/s)
   function frame(time) {
-    if (!enabled || document.hidden) { lastFrame = 0; animation = undefined; return; }
-    const delta = lastFrame ? (time - lastFrame) / 1000 : 0;
+    if (!enabled || document.hidden) { lastFrame = 0; pending = 0; animation = undefined; return; }
+    pending += lastFrame ? Math.min(.5, (time - lastFrame) / 1000) : 0;
     lastFrame = time;
-    accumulator += Math.min(.5, Math.max(0, delta));
-    while (accumulator >= simulation.dt) {
-      simulation.step();
-      accumulator -= simulation.dt;
-    }
-    if (time - lastPaint >= 100 && simulation.cars.length) { map.getSource('estimated-cars')?.setData(simulation.snapshot()); lastPaint = time; }
+    const dt = sim.timestepSeconds;
+    // Bound both accumulated time and step count, including unusually small timesteps.
+    let steps = 0;
+    for (; pending >= dt && steps < 5; pending -= dt, steps++) sim.step();
+    if (steps === 5) pending = 0;
+    if (time - lastPaint >= 100) { renderer.renderSnapshot(sim.snapshot()); lastPaint = time; }
     animation = requestAnimationFrame(frame);
   }
   function animate() { if (animation === undefined && enabled && !document.hidden) animation = requestAnimationFrame(frame); }
@@ -81,8 +108,8 @@ export function createEstimatedCars(map, toggle) {
     controller?.abort();
     clearTimeout(refreshTimer); clearInterval(periodicTimer);
     map.setLayoutProperty('estimated-cars', 'visibility', enabled ? 'visible' : 'none');
-    if (enabled) { summary.textContent = 'Loading traffic estimates…'; map.getSource('estimated-cars').setData(simulation.snapshot()); loadModel(); refreshSoon(); animate(); periodicTimer = setInterval(refreshSoon, 180_000); }
-    else { map.getSource('estimated-cars').setData(empty()); cancelAnimationFrame(animation); animation = undefined; lastFrame = 0; accumulator = 0; }
+    if (enabled) { summary.textContent = 'Loading traffic estimates…'; loadModel(); refreshSoon(); animate(); periodicTimer = setInterval(refreshSoon, 180_000); }
+    else { renderer.clear(); cancelAnimationFrame(animation); animation = undefined; lastFrame = 0; pending = 0; }
   }
   toggle.addEventListener('change', update);
   map.on('moveend', refreshSoon);
@@ -92,5 +119,5 @@ export function createEstimatedCars(map, toggle) {
     else if (enabled) { refreshSoon(); animate(); }
   });
   update();
-  return { get enabled() { return enabled; }, get count() { return simulation.cars.length; }, simulation };
+  return { sim, refresh: () => refresh(), get enabled() { return enabled; }, get count() { return renderer.count; } };
 }

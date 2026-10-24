@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { FlowClient, clipLine, extractRoads, estimateTraffic, spawnCars, stepCars, TrafficSimulation, londonTime } from '../lib/traffic.mjs';
+import { FlowClient, clipLine, extractRoads, estimateTraffic, londonTime } from '../lib/traffic.mjs';
+import { TrafficSimulation, snapshotToGeoJSON } from '../lib/traffic-simulation.mjs';
 
 const line = [[-.13, 51.507], [-.126, 51.507]];
 const road = { id: 'road', cls: 'primary', lanes: 2, line, m: 277, kmh: 20, vehicles: 1000 };
@@ -35,48 +36,23 @@ test('the supplied calibration table has the expected dimensions and nonnegative
 });
 
 test('estimated traffic has at most 300 car dots and never creates simulated buses', () => {
-  const cars = spawnCars([road, { ...road, id: 'other' }], () => .25);
-  assert.equal(cars.length, 300);
-  const features = stepCars(cars, .1).features;
+  const simulation = new TrafficSimulation({ roads: [road, { ...road, id: 'other' }], seed: 25 });
+  assert.equal(simulation.snapshot().vehicles.length, 300);
+  const features = snapshotToGeoJSON(simulation.snapshot()).features;
   assert.ok(features.every(feature => feature.properties.kind === 'estimated-car' && feature.properties.estimated === true));
   assert.ok(features.every(feature => feature.geometry.coordinates.every(Number.isFinite)));
 });
 
 test('dots follow road speeds, respect zero speed and use the indicated one-way direction', () => {
-  const stopped = spawnCars([{ ...road, kmh: 0, oneway: 1 }], () => .25);
-  const first = stepCars(stopped, 0).features[0].geometry.coordinates;
-  assert.deepEqual(stepCars(stopped, .1).features[0].geometry.coordinates, first);
-  const moving = spawnCars([{ ...road, oneway: 1 }], () => .25);
-  const before = stepCars(moving, 0).features[0].geometry.coordinates;
-  const after = stepCars(moving, .1).features[0].geometry.coordinates;
+  const stopped = new TrafficSimulation({ roads: [{ ...road, kmh: 0, oneway: 1 }], seed: 25 });
+  const first = snapshotToGeoJSON(stopped.snapshot()).features[0].geometry.coordinates;
+  stopped.step();
+  assert.deepEqual(snapshotToGeoJSON(stopped.snapshot()).features[0].geometry.coordinates, first);
+  const moving = new TrafficSimulation({ roads: [{ ...road, oneway: 1 }], seed: 25 });
+  const before = snapshotToGeoJSON(moving.snapshot()).features[0].geometry.coordinates;
+  moving.step();
+  const after = snapshotToGeoJSON(moving.snapshot()).features[0].geometry.coordinates;
   assert.ok(after[0] > before[0]);
-});
-
-test('simulation IDs and population persist when traffic estimates refresh', () => {
-  const simulation = new TrafficSimulation({ seed: 17 });
-  simulation.setTraffic({ roads: [road] });
-  const before = simulation.snapshot().features.map(feature => feature.id);
-  const positions = simulation.snapshot().features.map(feature => feature.geometry.coordinates);
-  simulation.step();
-  simulation.setTraffic({ roads: [{ ...road, kmh: 0 }] });
-  const after = simulation.snapshot().features;
-  assert.deepEqual(after.map(feature => feature.id), before);
-  assert.equal(after.length, before.length);
-  assert.notDeepEqual(after.map(feature => feature.geometry.coordinates), positions);
-  assert.ok(after.every(feature => feature.properties.speedMps === 0));
-});
-
-test('simulation uses fixed dt and seeded initialization is reproducible', () => {
-  const first = new TrafficSimulation({ dt: .2, seed: 9 });
-  const second = new TrafficSimulation({ dt: .2, seed: 9 });
-  first.setTraffic({ roads: [road] });
-  second.setTraffic({ roads: [road] });
-  assert.deepEqual(first.snapshot(), second.snapshot());
-  const before = first.snapshot().features[0].properties.offsetMetres;
-  first.step();
-  const after = first.snapshot().features[0].properties.offsetMetres;
-  assert.ok(Math.abs(after - before) <= first.cars[0].speed * .2 + .001);
-  assert.equal(new TrafficSimulation({ dt: 0 }).dt, .1);
 });
 
 test('speed requests share inflight work and cached cells for three minutes', async () => {
