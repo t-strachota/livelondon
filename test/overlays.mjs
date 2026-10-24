@@ -68,9 +68,14 @@ try {
   assert.equal(await page.evaluate(() => window.londonBuses.buses.length), 0);
   assert.ok(calls.speeds <= 9);
   const positions = await page.evaluate(async () => (await window.londonBuses.map.getSource('estimated-cars').getData()).features.map(feature => feature.geometry.coordinates));
+  const vehicleIds = await page.evaluate(async () => (await window.londonBuses.map.getSource('estimated-cars').getData()).features.map(feature => feature.id));
   await page.waitForTimeout(500);
   const moved = await page.evaluate(async () => (await window.londonBuses.map.getSource('estimated-cars').getData()).features.map(feature => feature.geometry.coordinates));
   assert.notDeepEqual(positions, moved);
+  await page.evaluate(() => window.londonBuses.map.jumpTo({ center: [-.3, 51.55] }));
+  await page.waitForTimeout(700);
+  const afterMapRefresh = await page.evaluate(async () => (await window.londonBuses.map.getSource('estimated-cars').getData()).features.map(feature => feature.id));
+  assert.deepEqual(afterMapRefresh, vehicleIds, 'Map refresh must not replace simulation vehicle IDs');
   await page.screenshot({ path: 'test-results/cars-london-overview.png' });
 
   await page.locator('#toggle-traffic').check();
