@@ -3,22 +3,28 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>London · Live buses</title>
+  <title>London · Transport map</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='12' fill='%23d32f2f'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="/vendor/maplibre-gl.css">
   <link rel="stylesheet" href="/styles.css">
   <script type="importmap">{"imports":{"three":"/vendor/three.module.js"}}</script>
 </head>
 <body>
-  <div id="map" aria-label="London map showing live TfL bus locations"></div>
-  <aside class="panel" aria-label="Live bus information">
-    <h1>London buses<span style="color:#d32f2f">.</span></h1>
+  <div id="map" aria-label="Interactive London map with optional TfL bus overlay"></div>
+  <aside class="panel" aria-label="Map layers">
+    <h1>London map<span style="color:#d32f2f">.</span></h1>
+    <label class="layer-toggle">
+      <span>Live TfL buses</span>
+      <input id="toggle-buses" type="checkbox" role="switch" aria-controls="bus-info" checked>
+    </label>
+    <div id="bus-info">
     <div id="feed-status" class="status" data-status="loading" role="status" aria-live="polite">Connecting to live buses</div>
     <p id="bus-count" class="count">Waiting for buses</p>
     <p id="feed-detail" class="detail">GPS locations from TfL via BODS.</p>
     <p id="stop-detail" class="detail"></p>
     <p id="map-hint" class="hint">Zoom in for 3D buses. Movement is smoothed over 15s; buses wait at stops on their own route.</p>
     <div class="legend"><span><i class="dot"></i> Live buses</span><span><i class="dot stop"></i> Bus stops</span></div>
+    </div>
   </aside>
   <script type="module" src="/app.js"></script>
 </body>

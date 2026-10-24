@@ -16,12 +16,18 @@ const countElement = document.querySelector('#bus-count');
 const detailElement = document.querySelector('#feed-detail');
 const stopDetailElement = document.querySelector('#stop-detail');
 const hintElement = document.querySelector('#map-hint');
+const busToggle = document.querySelector('#toggle-buses');
+const busInfo = document.querySelector('#bus-info');
+let busesEnabled = true;
+try { busesEnabled = localStorage.getItem('london-map:buses') !== 'off'; } catch { /* Storage can be unavailable in private sessions. */ }
+busToggle.checked = busesEnabled;
+busInfo.hidden = !busesEnabled;
 const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
 const store = new BusMotionStore();
 let snapshot = null, requestFailed = false, modelsReady = false, modelLayer;
 let dirty = true, dataDirty = true, wasMoving = false;
 let renderedBuses = [], lastRender = 0, lastDots = 0, lastStatus = 0;
-let popup, selectedBus = null, pollTimer, polling = false;
+let popup, selectedBus = null, pollTimer, polling = false, pollController;
 
 const map = new maplibregl.Map({
   container: 'map',
@@ -41,10 +47,40 @@ map.addControl(new maplibregl.AttributionControl({
 }), 'bottom-right');
 
 map.on('zoom', () => {
-  const pitch = pitchForZoom(map.getZoom());
+  const pitch = busesEnabled ? pitchForZoom(map.getZoom()) : 0;
   if (Math.abs(map.getPitch() - pitch) > .01) map.setPitch(pitch);
 });
 map.on('move', () => { dirty = true; });
+
+function updateBusVisibility() {
+  for (const id of ['live-bus-dots', 'live-bus-hit', 'bus-stops', 'bus-stops-osm']) {
+    if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', busesEnabled ? 'visible' : 'none');
+  }
+  busInfo.hidden = !busesEnabled;
+  if (!busesEnabled) modelLayer?.update([]);
+  map.setPitch(busesEnabled ? pitchForZoom(map.getZoom()) : 0);
+  dirty = true;
+}
+
+busToggle.addEventListener('change', () => {
+  busesEnabled = busToggle.checked;
+  try { localStorage.setItem('london-map:buses', busesEnabled ? 'on' : 'off'); } catch { /* The toggle still works without persistence. */ }
+  clearTimeout(pollTimer);
+  clearTimeout(stopTimer);
+  if (!busesEnabled) {
+    pollController?.abort();
+    stopRequest?.abort();
+    popup?.remove();
+    selectedBus = null;
+    store.states.clear();
+    store.movingUntil = 0;
+    renderedBuses = [];
+    map.getSource('live-buses')?.setData(toGeoJSON([]));
+    map.getCanvas().style.cursor = '';
+  }
+  updateBusVisibility();
+  if (busesEnabled && map.getSource('live-buses')) { dataDirty = true; void poll(); void fetchStops(); }
+});
 
 function setDotOpacity() {
   if (!map.getLayer('live-bus-dots')) return;
@@ -97,6 +133,7 @@ map.on('load', async () => {
     modelsReady = true;
     setDotOpacity();
   } catch { modelFailure(); }
+  updateBusVisibility();
   dirty = true;
   void poll();
   requestAnimationFrame(frame);
@@ -119,31 +156,35 @@ function updateStatus(now) {
 
 async function poll() {
   clearTimeout(pollTimer);
-  if (document.hidden || polling) return;
+  if (document.hidden || !busesEnabled || polling) return;
   polling = true;
+  const controller = new AbortController();
+  pollController = controller;
   const startedAt = Date.now();
   try {
-    const response = await fetch('/api/buses', { cache: 'no-store', signal: AbortSignal.timeout(20_000) });
+    const response = await fetch('/api/buses', { cache: 'no-store', signal: AbortSignal.any([controller.signal, AbortSignal.timeout(20_000)]) });
     const incoming = await response.json();
+    if (!busesEnabled || controller.signal.aborted) return;
     if (!Array.isArray(incoming.buses) || !['live', 'stale', 'unavailable', 'unconfigured'].includes(incoming.status)) throw new Error('Invalid feed response');
     snapshot = incoming;
     requestFailed = !response.ok && incoming.status !== 'unconfigured';
     store.ingest(incoming.buses, Date.now(), { animate: !reducedMotion.matches });
-  } catch { requestFailed = true; }
+  } catch { if (!controller.signal.aborted) requestFailed = true; }
   finally {
     polling = false;
     dirty = true;
     dataDirty = true;
-    if (!document.hidden) pollTimer = setTimeout(poll, Math.max(0, 15_000 - (Date.now() - startedAt)));
+    if (!document.hidden && busesEnabled) pollTimer = setTimeout(poll, controller.signal.aborted ? 0 : Math.max(0, 15_000 - (Date.now() - startedAt)));
   }
 }
 
 document.addEventListener('visibilitychange', () => {
   clearTimeout(pollTimer);
-  if (!document.hidden && map.getSource('live-buses')) { dirty = true; void poll(); }
+  if (!document.hidden && busesEnabled && map.getSource('live-buses')) { dirty = true; void poll(); }
 });
 
 function frame() {
+  if (!busesEnabled) { requestAnimationFrame(frame); return; }
   const now = Date.now(), moving = store.movingUntil > now;
   if (!document.hidden && (((dirty || moving || wasMoving) && now - lastRender >= 32) || now - lastRender >= 1000)) {
     renderedBuses = store.sample(now);
@@ -171,6 +212,7 @@ function frame() {
 }
 
 function busAt(point) {
+  if (!busesEnabled) return null;
   if (!map.getLayer('live-bus-hit')) return null;
   const hits = map.queryRenderedFeatures(point, { layers: ['live-bus-hit'] });
   const ids = new Set(hits.map(feature => feature.properties.id));
@@ -194,6 +236,7 @@ function updatePopup(content, bus) {
 }
 
 map.on('click', event => {
+  if (!busesEnabled) return;
   const bus = busAt(event.point);
   popup?.remove();
   selectedBus = bus?.id ?? null;
@@ -226,7 +269,7 @@ map.on('mousemove', event => { map.getCanvas().style.cursor = busAt(event.point)
 const fetchedViews = new Set(), osmStops = new Map();
 let stopTimer, stopRequest;
 async function fetchStops() {
-  if (map.getZoom() < 15 || !map.getSource('overpass-bus')) return;
+  if (!busesEnabled || map.getZoom() < 15 || !map.getSource('overpass-bus')) return;
   if (map.getLayer('bus-stops') && map.queryRenderedFeatures({ layers: ['bus-stops'] }).length) return;
   const b = map.getBounds();
   const key = [b.getSouth(), b.getWest(), b.getNorth(), b.getEast()].map(value => value.toFixed(3)).join(',');
@@ -247,4 +290,4 @@ map.on('moveend', () => { clearTimeout(stopTimer); stopTimer = setTimeout(fetchS
 map.on('load', () => { stopTimer = setTimeout(fetchStops, 500); });
 
 // Read-only state for browser checks and map debugging.
-window.londonBuses = { map, get buses() { return renderedBuses; }, get modelsReady() { return modelsReady; }, get modelCount() { return modelLayer?.meshes?.[0]?.count ?? 0; } };
+window.londonBuses = { map, get enabled() { return busesEnabled; }, get buses() { return renderedBuses; }, get modelsReady() { return modelsReady; }, get modelCount() { return modelLayer?.meshes?.[0]?.count ?? 0; } };

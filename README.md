@@ -18,6 +18,10 @@ npm start
 
 Open **http://localhost:3000**. Set `PORT` in `.env` if needed. The app is served by Node; opening `index.html` directly or using a static-only server will not provide the live API. The start command honours existing HTTP/HTTPS proxy environment variables.
 
+## Map layers
+
+Use the **Live TfL buses** switch in the map panel to show or hide the bus overlay. It starts enabled and remembers your selection in this browser. Turning it off hides the dots, 3D buses, stop markers and bus information, closes bus popups, pauses bus requests, and restores a flat map. Turning it on immediately loads fresh positions and restores the zoom-dependent bus models and tilt. The basemap remains available throughout.
+
 ## API keys and configuration
 
 The shared project keys are included below as requested. The BODS key is also in the Git-tracked `.env`; the MapTiler browser key is configured in `public/app.js`.

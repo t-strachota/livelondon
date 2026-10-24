@@ -13,10 +13,12 @@ await once(server, 'listening');
 const base = `http://127.0.0.1:${server.address().port}`;
 let browser, page;
 const errors = [];
+let apiRequests = 0;
 try {
   browser = await chromium.launch({ headless: true, args: ['--enable-unsafe-swiftshader', '--use-angle=swiftshader'] });
   const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
   page = await context.newPage();
+  page.on('request', request => { if (new URL(request.url()).pathname === '/api/buses') apiRequests++; });
   page.on('pageerror', error => errors.push(error.message));
   page.on('console', message => { if (message.type() === 'error' && !message.text().includes('503')) errors.push(message.text()); });
   // Fixtures isolate rendering checks from third-party map quotas and availability.
@@ -51,7 +53,35 @@ try {
   await page.mouse.click(...point);
   await page.waitForSelector('.bus-popup');
   assert.match(await page.locator('.bus-popup').textContent(), /Bus .*Towards Waterloo.*GPS update/);
-  await page.locator('.maplibregl-popup-close-button').click();
+  // Turning the overlay off must hide every bus representation and stop fetching.
+  await page.locator('#toggle-buses').uncheck();
+  await page.waitForFunction(() => !window.londonBuses.enabled && window.londonBuses.modelCount === 0);
+  assert.equal(await page.locator('#bus-info').isVisible(), false);
+  assert.equal(await page.locator('.bus-popup').count(), 0);
+  assert.equal(await page.evaluate(() => window.londonBuses.map.getLayoutProperty('live-bus-dots', 'visibility')), 'none');
+  assert.equal(await page.evaluate(() => window.londonBuses.map.getLayoutProperty('live-bus-hit', 'visibility')), 'none');
+  assert.equal(await page.evaluate(() => window.londonBuses.map.getLayoutProperty('bus-stops-osm', 'visibility')), 'none');
+  const pausedRequests = apiRequests;
+  await page.evaluate(() => { window.londonBuses.map.jumpTo({ zoom: 19 }); document.dispatchEvent(new Event('visibilitychange')); });
+  await page.waitForTimeout(600);
+  assert.equal(await page.evaluate(() => window.londonBuses.map.getPitch()), 0);
+  assert.equal(apiRequests, pausedRequests);
+  await page.screenshot({ path: 'test-results/buses-disabled.png' });
+
+  // The preference must survive reload, and enabling must fetch immediately.
+  await page.reload();
+  await page.waitForFunction(() => window.londonBuses?.modelsReady);
+  assert.equal(await page.locator('#toggle-buses').isChecked(), false);
+  assert.equal(await page.evaluate(() => window.londonBuses.buses.length), 0);
+  assert.equal(apiRequests, pausedRequests);
+  await page.locator('#toggle-buses').check();
+  await page.waitForFunction(() => window.londonBuses.buses.length === 300);
+  assert.ok(apiRequests > pausedRequests);
+  assert.equal(await page.locator('#bus-info').isVisible(), true);
+  await page.evaluate(() => window.londonBuses.map.jumpTo({ zoom: 18 }));
+  await page.waitForFunction(() => window.londonBuses.modelCount > 50);
+  assert.equal(await page.evaluate(() => window.londonBuses.map.getPitch()), 40);
+  console.log('PASS: bus toggle hides dots, models, stops and popups; pauses polling; persists; resumes with fresh data');
 
   // Fresh fixes must spread movement across the interval instead of completing in one second.
   const previousPosition = await page.evaluate(() => window.londonBuses.buses.find(bus => bus.id === 'TFLO:test-165').longitude);
