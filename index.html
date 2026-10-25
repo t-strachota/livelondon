@@ -3,7 +3,9 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>London · Transport map</title>
+  <title>London live · Transport insight &amp; closure scenarios</title>
+  <meta name="description" content="Explore London's live traffic and bus observations, model road closure scenarios, and inspect network congestion. Transport insight for public bodies and everyday journeys.">
+  <meta name="theme-color" content="#172c6c">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='12' fill='%23d32f2f'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="/vendor/maplibre-gl.css">
   <link rel="preconnect" href="https://api.maptiler.com" crossorigin>
@@ -14,37 +16,56 @@
 <body>
   <div id="map" aria-label="Interactive London map with optional TfL bus overlay"></div>
   <div id="cctv-tiles"></div>
-  <div id="loading-screen" class="loading-screen" role="status" aria-live="polite">
-    <div class="loading-card"><div class="brand-mark" aria-hidden="true">L<span>•</span></div><p class="eyebrow">LONDON / IN MOTION</p><h1>A city coming to life.</h1><p id="loading-message">Preparing your London map…</p><div class="loading-track"><span></span></div><p class="detail">Live observations. Simulated possibilities.</p><button id="loading-continue" class="quiet-button" type="button">Explore while data loads →</button></div>
-  </div>
+  <svg class="icon-library" aria-hidden="true" xmlns="http://www.w3.org/2000/svg"><defs>
+    <symbol id="icon-bus" viewBox="0 0 24 24"><rect x="5" y="3" width="14" height="17" rx="4"/><path d="M5 11h14M9 3v8M5 16h14M8 20v2m8-2v2"/><path d="M8 14h.01M16 14h.01"/></symbol>
+    <symbol id="icon-traffic" viewBox="0 0 24 24"><path d="M4 20V9a4 4 0 0 1 8 0v6a4 4 0 0 0 8 0V4M1 12l3-3 3 3m10-5 3-3 3 3"/></symbol>
+    <symbol id="icon-camera" viewBox="0 0 24 24"><rect x="3" y="6" width="14" height="13" rx="3"/><path d="m17 10 4-2v9l-4-2M7 6l1-3h4l1 3"/><circle cx="10" cy="12.5" r="2.5"/></symbol>
+    <symbol id="icon-car" viewBox="0 0 24 24"><path d="m5 9 2-5h10l2 5M4 17v3m16-3v3"/><rect x="3" y="9" width="18" height="9" rx="3"/><path d="M6 13h2m8 0h2"/></symbol>
+    <symbol id="icon-signal" viewBox="0 0 24 24"><rect x="7" y="2" width="10" height="17" rx="4"/><path d="M12 19v3"/><circle cx="12" cy="6" r="1"/><circle cx="12" cy="10.5" r="1"/><circle cx="12" cy="15" r="1"/></symbol>
+    <symbol id="icon-hotspot" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><circle cx="12" cy="12" r="7"/><path d="M12 1v2m0 18v2M1 12h2m18 0h2"/></symbol>
+    <symbol id="icon-home" viewBox="0 0 24 24"><circle cx="12" cy="12" r="6"/><path d="M12 2v4m0 12v4M2 12h4m12 0h4"/></symbol>
+  </defs></svg>
+  <main id="loading-screen" class="loading-screen intro-active" aria-labelledby="intro-line">
+    <section id="project-intro" class="project-intro" aria-label="Project introduction">
+      <header class="intro-header"><span class="intro-brand">London live<span class="accent">.</span></span><button id="intro-skip" class="intro-skip" type="button">Skip intro <span aria-hidden="true">↗</span></button></header>
+      <div class="intro-stage"><div class="intro-copy"><p class="intro-overline">The cost of standing still</p><h1 id="intro-line" tabindex="-1" aria-live="polite">When public transport and traffic are poorly managed, we lose <strong>time</strong>, <strong>money</strong> and <em>ease of movement.</em></h1></div></div>
+      <footer class="intro-footer"><button id="intro-next" class="intro-prompt" type="button"><span class="intro-key" aria-hidden="true">↵</span><span class="intro-keyboard-hint">Press any key…</span><span class="intro-touch-hint">Tap to continue</span></button><button id="intro-enter" class="intro-enter" type="button" hidden>Enter simulator <span aria-hidden="true">↗</span></button><div class="intro-progress" aria-label="Introduction progress"><span id="intro-progress">01 / 02</span><i class="is-current"></i><i></i></div></footer>
+    </section>
+  </main>
   <aside class="panel" aria-label="Map controls">
-    <header class="panel-header"><div><p class="eyebrow">TRANSPORT OBSERVATORY</p><h1>London<span class="accent">.</span></h1></div><div class="header-actions"><button id="theme-toggle" class="icon-button" aria-label="Enable dark mode" aria-pressed="false" title="Toggle dark mode">☾</button><button id="panel-minimize" class="icon-button" aria-label="Minimize controls" aria-expanded="true" aria-controls="panel-content" title="Minimize controls">−</button></div></header>
+    <header class="panel-header"><div class="header-actions"><button id="theme-toggle" class="icon-button" aria-label="Enable dark mode" aria-pressed="false" title="Toggle dark mode">☾</button><button id="panel-minimize" class="icon-button" aria-label="Minimize controls" aria-expanded="true" aria-controls="panel-content" title="Minimize controls">−</button></div></header>
     <div id="panel-content">
-      <section class="control-section"><h2><span>01</span> Data Streams</h2>
-        <label class="layer-toggle"><span><i class="stream-dot buses"></i>Live TfL buses<small>Observed GPS · every 15 seconds</small></span><input id="toggle-buses" type="checkbox" role="switch" aria-controls="bus-info" checked></label>
-        <label class="layer-toggle" id="traffic-toggle"><span><i class="stream-dot traffic"></i>Traffic flow<small>TomTom congestion observations</small></span><input id="toggle-traffic" type="checkbox" role="switch"></label>
-        <div id="traffic-legend" class="flow-legend" hidden><span>Free flow</span><i></i><span>Congested</span></div>
-        <label class="layer-toggle" id="cctv-toggle"><span><i class="stream-dot cameras"></i>Live cameras<small>TfL street views</small></span><input id="toggle-cameras" type="checkbox" role="switch" aria-controls="camera-status"></label><p id="camera-status" class="detail" hidden>Loading traffic cameras…</p>
+
+      <nav class="panel-tabs" role="tablist" aria-label="Map controls"><button id="tab-explore" type="button" role="tab" aria-selected="true" aria-controls="section-explore">Explore</button><button id="tab-simulation" type="button" role="tab" aria-selected="false" aria-controls="section-simulation" tabindex="-1">Simulation</button><button id="tab-statistics" type="button" role="tab" aria-selected="false" aria-controls="section-statistics" tabindex="-1">Live stats</button></nav>
+      <div class="tab-body">
+
+      <section id="section-explore" class="control-section" role="tabpanel" aria-labelledby="tab-explore" tabindex="0"><div class="section-heading"><h2>Explore live conditions</h2><p>See what's happening on London's roads.</p></div>
+        <div class="toggle-card"><label class="layer-toggle"><span class="layer-description"><i class="layer-icon buses"><svg><use href="#icon-bus"/></svg></i><span>Buses<small>Live locations · every 15 seconds</small></span></span><input id="toggle-buses" type="checkbox" role="switch" aria-controls="bus-info" checked></label>
+        <label class="layer-toggle" id="traffic-toggle"><span class="layer-description"><i class="layer-icon traffic"><svg><use href="#icon-traffic"/></svg></i><span>Traffic flow<small>Where roads are moving slowly</small></span></span><input id="toggle-traffic" type="checkbox" role="switch"></label>
+        <div id="traffic-legend" class="flow-legend" hidden><span>Moving freely</span><i></i><span>Slow</span></div>
+        <label class="layer-toggle" id="cctv-toggle"><span class="layer-description"><i class="layer-icon cameras"><svg><use href="#icon-camera"/></svg></i><span>Street cameras<small>A live look around London</small></span></span><input id="toggle-cameras" type="checkbox" role="switch" aria-controls="camera-status"></label></div><p id="camera-status" class="detail" hidden>Finding street cameras…</p>
+        <button id="map-home" class="map-home" type="button"><svg><use href="#icon-home"/></svg>Back to central London<span aria-hidden="true">↗</span></button>
+        <div class="explore-note"><span class="note-mark" aria-hidden="true">↗</span><p>Get a little closer.<small>Zoom in to see buses in 3D.</small></p></div>
       </section>
-      <section class="control-section"><h2><span>02</span> Simulation Settings</h2>
-        <label class="layer-toggle" id="vehicles-toggle"><span><i class="stream-dot cars"></i>Simulated cars<small>Persistent model · independent of live GPS</small></span><input id="toggle-cars" type="checkbox" role="switch"></label>
-        <label class="layer-toggle"><span>Traffic lights<small>Simulated phases · visible up close</small></span><input id="toggle-signals" type="checkbox" role="switch" checked></label>
-        <label class="layer-toggle"><span>Congestion epicenters<small>Red glow where simulated queues form</small></span><input id="toggle-hotspots" type="checkbox" role="switch" aria-describedby="hotspot-detail"></label>
-        <p id="hotspot-detail" class="detail" hidden>Clusters of slow simulated cars in the loaded map area. Model estimates, not observed incidents.</p>
-        <div class="population-heading"><label class="sim-population" for="sim-population">Next run population</label><output id="sim-population-value" for="sim-population">5,000</output></div>
-        <input id="sim-population" type="range" min="5000" max="200000" step="500" value="5000"><p class="detail">Applied only when you re-initialize.</p>
-        <div class="sim-controls"><button id="sim-pause" type="button" disabled>Pause</button><button id="sim-reinit" type="button" disabled>Re-initialize with live data</button></div><p id="sim-progress" class="detail" role="status" aria-live="polite"></p><p class="shared-note">Pause and re-initialize apply to all viewers.</p>
+      <section id="section-simulation" class="control-section" role="tabpanel" aria-labelledby="tab-simulation" tabindex="0" hidden><div class="section-heading"><h2>Scenario workspace</h2><p>Explore how traffic moves through the city.</p></div>
+        <div class="toggle-card"><label class="layer-toggle" id="vehicles-toggle"><span class="layer-description"><i class="layer-icon cars"><svg><use href="#icon-car"/></svg></i><span>Simulated cars<small>Modelled traffic across London</small></span></span><input id="toggle-cars" type="checkbox" role="switch"></label>
+        <label class="layer-toggle"><span class="layer-description"><i class="layer-icon signals"><svg><use href="#icon-signal"/></svg></i><span>Traffic lights<small>Simulated signals · visible up close</small></span></span><input id="toggle-signals" type="checkbox" role="switch" checked></label>
+        <label class="layer-toggle"><span class="layer-description"><i class="layer-icon hotspots"><svg><use href="#icon-hotspot"/></svg></i><span>Congestion hotspots<small>See where simulated queues build</small></span></span><input id="toggle-hotspots" type="checkbox" role="switch" aria-describedby="hotspot-detail"></label></div>
+        <p id="hotspot-detail" class="detail" hidden>Red areas show groups of slow simulated cars. These are model estimates.</p>
+        <div class="population-card"><div class="population-heading"><label class="sim-population" for="sim-population">Cars in the next run</label><output id="sim-population-value" for="sim-population">5,000</output></div>
+        <input id="sim-population" type="range" min="5000" max="200000" step="500" value="5000"><div class="range-labels"><span>A little quieter</span><span>A lot busier</span></div><p class="detail">Choose a number, then start a new run.</p></div>
+        <div class="sim-controls"><button id="sim-pause" type="button" disabled>Pause</button><button id="sim-reinit" type="button" disabled>Re-initialize with live data</button></div><p id="sim-progress" class="detail" role="status" aria-live="polite"></p><p class="shared-note">One shared simulation. Changes apply to everyone viewing.</p>
       </section>
-      <section class="control-section"><h2><span>03</span> Statistics</h2>
-        <div id="car-info"><p id="sim-connection" class="status" data-status="loading" role="status" aria-live="polite">Connecting to simulation</p><dl class="metrics"><dt>Cars · all London</dt><dd id="sim-global">—</dd><dt>Visible cars</dt><dd id="sim-visible">—</dd><dt>Average speed</dt><dd id="sim-speed">—</dd><dt>Simulation time</dt><dd id="sim-time">—</dd><dt>Initial traffic data</dt><dd id="sim-data">—</dd><dt>Simulation health</dt><dd id="sim-health">—</dd></dl></div>
-        <details id="bus-info" class="feed-details" open><summary>Live bus feed</summary><div id="feed-status" class="status" data-status="loading" role="status" aria-live="polite">Connecting to live buses</div><p id="bus-count" class="count">Waiting for buses</p><p id="feed-detail" class="detail">GPS locations from TfL via BODS.</p><p id="stop-detail" class="detail"></p><p id="map-hint" class="hint">Zoom in for 3D buses. Buses wait at stops on their own route.</p></details>
-        <details class="about-details"><summary>About the model &amp; data</summary><p class="detail">Simulated car positions are seeded from live TomTom traffic observations and then evolve independently. They are estimates, not live tracking of individual vehicles. Population is a modelling choice. Traffic light locations come from OpenStreetMap; timing is simulated. Turn restrictions and conflicts at unsignalised junctions are not modelled. Epicenters highlight cells with at least 8 cars where at least half travel below 11 km/h; signals can also cause these queues.</p></details>
+      <section id="section-statistics" class="control-section" role="tabpanel" aria-labelledby="tab-statistics" tabindex="0" hidden><div class="section-heading"><h2>The city right now</h2><p>Live observations. A moving simulation.</p></div>
+        <div id="car-info"><p id="sim-connection" class="status" data-status="loading" role="status" aria-live="polite">Connecting to simulation</p><dl class="metrics"><div class="metric-primary"><dt>Cars across London</dt><dd id="sim-global">—</dd></div><div class="metric-primary"><dt>Average speed</dt><dd id="sim-speed">—</dd></div><div><dt>Cars on screen</dt><dd id="sim-visible">—</dd></div><div><dt>Simulation time</dt><dd id="sim-time">—</dd></div><div><dt>Traffic data</dt><dd id="sim-data">—</dd></div><div><dt>Simulation health</dt><dd id="sim-health">—</dd></div></dl></div>
+        <details id="bus-info" class="feed-details" open><summary><span class="stream-dot buses"></span>Live bus feed</summary><div id="feed-status" class="status" data-status="loading" role="status" aria-live="polite">Connecting to live buses</div><p id="bus-count" class="count">Waiting for buses</p><p id="feed-detail" class="detail">GPS locations from TfL via BODS.</p><p id="stop-detail" class="detail"></p><p id="map-hint" class="hint">Zoom in for 3D buses. Buses wait at stops on their own route.</p></details>
+        <details class="about-details"><summary>About the data</summary><p class="detail">Simulated car positions are seeded from live TomTom traffic observations and then evolve independently. They are estimates, not live tracking of individual vehicles. Population is a modelling choice. Traffic light locations come from OpenStreetMap; timing is simulated. Turn restrictions and conflicts at unsignalised junctions are not modelled. Hotspots highlight cells with at least 8 cars where at least half travel below 11 km/h; signals can also cause these queues.</p></details>
       </section>
-      <footer class="panel-footer"><span class="live-indicator"></span> LONDON IN MOTION <span>EST. / LIVE</span></footer>
+      </div><footer class="panel-footer"><button id="intro-replay" class="replay-link" type="button">↻ Replay introduction</button><span>Live + simulated</span></footer>
     </div>
   </aside>
   <div class="closure-card" aria-label="Road closures">
-    <button id="closure-mode" class="closure-button" type="button" aria-pressed="false" aria-controls="sim-closures">Close roads</button>
+    <div class="closure-actions"><button id="closure-mode" class="closure-button" type="button" aria-pressed="false" aria-controls="sim-closures">Close a road</button><button id="closure-details-toggle" class="closure-details-toggle" type="button" aria-expanded="false" aria-label="Show road closure details" aria-controls="sim-closures" hidden>⌄</button></div>
     <section id="sim-closures" hidden>
       <p id="closure-note" class="detail" role="status" aria-live="polite"></p>
       <ul id="sim-closure-list"></ul>
