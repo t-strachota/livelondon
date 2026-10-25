@@ -14,45 +14,33 @@
 <body>
   <div id="map" aria-label="Interactive London map with optional TfL bus overlay"></div>
   <div id="cctv-tiles"></div>
-  <aside class="panel" aria-label="Map layers">
-    <h1>London map<span style="color:#d32f2f">.</span></h1>
-    <label class="layer-toggle">
-      <span>Live TfL buses</span>
-      <input id="toggle-buses" type="checkbox" role="switch" aria-controls="bus-info" checked>
-    </label>
-    <label class="layer-toggle" id="traffic-toggle"><span>Traffic flow</span><input id="toggle-traffic" type="checkbox" role="switch"></label>
-    <label class="layer-toggle" id="vehicles-toggle"><span>Simulated cars</span><input id="toggle-cars" type="checkbox" role="switch" aria-controls="car-info"></label>
-    <label class="layer-toggle" id="cctv-toggle"><span>Live cameras</span><input id="toggle-cameras" type="checkbox" role="switch" aria-controls="camera-status"></label>
-    <p id="camera-status" class="detail" hidden>Loading traffic cameras…</p>
-    <section id="car-info" class="overlay-info" hidden>
-      <p id="sim-connection" class="status" data-status="loading" role="status" aria-live="polite">Connecting to simulation</p>
-      <dl class="metrics">
-        <dt>Cars, all London</dt><dd id="sim-global">—</dd>
-        <dt>Visible now</dt><dd id="sim-visible">—</dd>
-        <dt>Average speed</dt><dd id="sim-speed">—</dd>
-        <dt>Simulation time</dt><dd id="sim-time">—</dd>
-        <dt>Traffic data</dt><dd id="sim-data">—</dd>
-        <dt>Health</dt><dd id="sim-health">—</dd>
-      </dl>
-      <div class="sim-controls">
-        <button id="sim-pause" type="button" disabled>Pause</button>
-        <button id="sim-reinit" type="button" disabled>Re-initialize with live data</button>
-      </div>
-      <label class="sim-population" for="sim-population">Cars at next re-initialization: <output id="sim-population-value" for="sim-population">5,000</output></label>
-      <input id="sim-population" type="range" min="5000" max="200000" step="500" value="5000">
-      <p id="sim-progress" class="detail" role="status" aria-live="polite"></p>
-      <label class="layer-toggle"><span>Traffic lights</span><input id="toggle-signals" type="checkbox" role="switch" checked></label>
-      <div class="legend"><span><i class="dot signal-red"></i><i class="dot signal-amber"></i><i class="dot signal-green"></i> Traffic lights: simulated signals (zoom in to see)</span></div>
-      <p class="detail"><i class="dot car"></i> Simulated car positions are seeded from live TomTom traffic observations and then evolve independently. They are estimates, not live tracking of individual vehicles.</p>
-      <details><summary>About this simulation</summary><p class="detail">Pause and re-initialize apply to everyone viewing this server. The car count is a modelling choice, not a measured London count. Traffic light locations come from OpenStreetMap (© OpenStreetMap contributors); their timing is simulated (fixed 90 s cycles), because live signal states are not available. There are no turn restrictions, and junctions without signals behave as simple merges. Changing the slider only affects the next re-initialization, which moves the same cars to positions weighted by live TomTom traffic.</p></details>
-    </section>
-    <div id="bus-info" class="overlay-info">
-    <div id="feed-status" class="status" data-status="loading" role="status" aria-live="polite">Connecting to live buses</div>
-    <p id="bus-count" class="count">Waiting for buses</p>
-    <p id="feed-detail" class="detail">GPS locations from TfL via BODS.</p>
-    <p id="stop-detail" class="detail"></p>
-    <p id="map-hint" class="hint">Zoom in for 3D buses. Movement is smoothed over 15s; buses wait at stops on their own route.</p>
-    <div class="legend"><span><i class="dot"></i> Live buses</span><span><i class="dot stop"></i> Bus stops</span></div>
+  <div id="loading-screen" class="loading-screen" role="status" aria-live="polite">
+    <div class="loading-card"><div class="brand-mark" aria-hidden="true">L<span>•</span></div><p class="eyebrow">LONDON / IN MOTION</p><h1>A city coming to life.</h1><p id="loading-message">Preparing your London map…</p><div class="loading-track"><span></span></div><p class="detail">Live observations. Simulated possibilities.</p><button id="loading-continue" class="quiet-button" type="button">Explore while data loads →</button></div>
+  </div>
+  <aside class="panel" aria-label="Map controls">
+    <header class="panel-header"><div><p class="eyebrow">TRANSPORT OBSERVATORY</p><h1>London<span class="accent">.</span></h1></div><div class="header-actions"><button id="theme-toggle" class="icon-button" aria-label="Enable dark mode" aria-pressed="false" title="Toggle dark mode">☾</button><button id="panel-minimize" class="icon-button" aria-label="Minimize controls" aria-expanded="true" aria-controls="panel-content" title="Minimize controls">−</button></div></header>
+    <div id="panel-content">
+      <section class="control-section"><h2><span>01</span> Data Streams</h2>
+        <label class="layer-toggle"><span><i class="stream-dot buses"></i>Live TfL buses<small>Observed GPS · every 15 seconds</small></span><input id="toggle-buses" type="checkbox" role="switch" aria-controls="bus-info" checked></label>
+        <label class="layer-toggle" id="traffic-toggle"><span><i class="stream-dot traffic"></i>Traffic flow<small>TomTom congestion observations</small></span><input id="toggle-traffic" type="checkbox" role="switch"></label>
+        <div id="traffic-legend" class="flow-legend" hidden><span>Free flow</span><i></i><span>Congested</span></div>
+        <label class="layer-toggle" id="cctv-toggle"><span><i class="stream-dot cameras"></i>Live cameras<small>TfL street views</small></span><input id="toggle-cameras" type="checkbox" role="switch" aria-controls="camera-status"></label><p id="camera-status" class="detail" hidden>Loading traffic cameras…</p>
+      </section>
+      <section class="control-section"><h2><span>02</span> Simulation Settings</h2>
+        <label class="layer-toggle" id="vehicles-toggle"><span><i class="stream-dot cars"></i>Simulated cars<small>Persistent model · independent of live GPS</small></span><input id="toggle-cars" type="checkbox" role="switch"></label>
+        <label class="layer-toggle"><span>Traffic lights<small>Simulated phases · visible up close</small></span><input id="toggle-signals" type="checkbox" role="switch" checked></label>
+        <label class="layer-toggle"><span>Congestion epicenters<small>Red glow where simulated queues form</small></span><input id="toggle-hotspots" type="checkbox" role="switch" aria-describedby="hotspot-detail"></label>
+        <p id="hotspot-detail" class="detail" hidden>Clusters of slow simulated cars in the loaded map area. Model estimates, not observed incidents.</p>
+        <div class="population-heading"><label class="sim-population" for="sim-population">Next run population</label><output id="sim-population-value" for="sim-population">5,000</output></div>
+        <input id="sim-population" type="range" min="5000" max="200000" step="500" value="5000"><p class="detail">Applied only when you re-initialize.</p>
+        <div class="sim-controls"><button id="sim-pause" type="button" disabled>Pause</button><button id="sim-reinit" type="button" disabled>Re-initialize with live data</button></div><p id="sim-progress" class="detail" role="status" aria-live="polite"></p><p class="shared-note">Pause and re-initialize apply to all viewers.</p>
+      </section>
+      <section class="control-section"><h2><span>03</span> Statistics</h2>
+        <div id="car-info"><p id="sim-connection" class="status" data-status="loading" role="status" aria-live="polite">Connecting to simulation</p><dl class="metrics"><dt>Cars · all London</dt><dd id="sim-global">—</dd><dt>Visible cars</dt><dd id="sim-visible">—</dd><dt>Average speed</dt><dd id="sim-speed">—</dd><dt>Simulation time</dt><dd id="sim-time">—</dd><dt>Initial traffic data</dt><dd id="sim-data">—</dd><dt>Simulation health</dt><dd id="sim-health">—</dd></dl></div>
+        <details id="bus-info" class="feed-details" open><summary>Live bus feed</summary><div id="feed-status" class="status" data-status="loading" role="status" aria-live="polite">Connecting to live buses</div><p id="bus-count" class="count">Waiting for buses</p><p id="feed-detail" class="detail">GPS locations from TfL via BODS.</p><p id="stop-detail" class="detail"></p><p id="map-hint" class="hint">Zoom in for 3D buses. Buses wait at stops on their own route.</p></details>
+        <details class="about-details"><summary>About the model &amp; data</summary><p class="detail">Simulated car positions are seeded from live TomTom traffic observations and then evolve independently. They are estimates, not live tracking of individual vehicles. Population is a modelling choice. Traffic light locations come from OpenStreetMap; timing is simulated. Turn restrictions and conflicts at unsignalised junctions are not modelled. Epicenters highlight cells with at least 8 cars where at least half travel below 11 km/h; signals can also cause these queues.</p></details>
+      </section>
+      <footer class="panel-footer"><span class="live-indicator"></span> LONDON IN MOTION <span>EST. / LIVE</span></footer>
     </div>
   </aside>
 <div id="cctv-viewer" hidden>
