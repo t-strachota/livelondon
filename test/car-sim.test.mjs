@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { CarSim, CAR_LENGTH, CYCLE, GREEN, RED } from '../lib/car-sim.mjs';
+import { CarSim, CAR_LENGTH, CYCLE, GREEN, RED, particleAcceleration, PARTICLE_GAP } from '../lib/car-sim.mjs';
 import { squareRoads } from './fixtures.mjs';
 
 function sameLaneGaps(sim) {
@@ -49,7 +49,7 @@ test('a follower brakes to a stop behind a stopped car on a single-lane road', (
   assert.equal(sim.lane[1], 0);
   assert.ok(sim.v[1] < .1);
   assert.ok(300 - sim.pos[1] >= CAR_LENGTH, `gap ${300 - sim.pos[1]}`);
-  assert.ok(300 - sim.pos[1] < CAR_LENGTH + 5);
+  assert.ok(300 - sim.pos[1] <= CAR_LENGTH * 3 + .2, "settles within two car lengths bumper-to-bumper");
 });
 
 test('on a two-lane road the follower changes lane and passes instead', () => {
@@ -127,4 +127,40 @@ test('signals: a queue forms at red and discharges on green', () => {
   assert.ok(Math.max(...sim.pos) <= 400 && Math.max(...sim.pos) > 385, 'front cars wait at the stop line');
   for (let j = 0; j < 150; j++) sim.step(.2);
   assert.ok([...sim.edge].every(e => e !== 0), `queue discharged on green: ${[...sim.edge]} ${[...sim.pos].map(Math.round)} ${[...sim.v].map(Math.round)} ${[...sim.next]} state ${sim.signalState(0)}`);
+});
+
+
+test('particle force attracts at long gaps, balances at the preferred gap and repels close cars', () => {
+  const force = gap => particleAcceleration(8, 13.4, gap, 8, PARTICLE_GAP, 1.5, 2, 2, .2);
+  assert.ok(force(40) > 0);
+  assert.equal(force(PARTICLE_GAP), 0);
+  assert.ok(force(3) < 0);
+  assert.ok(force(.01) >= -9, 'emergency deceleration is bounded');
+  assert.ok(particleAcceleration(13.4, 13.4, 100, 13.4, PARTICLE_GAP, 1.5, 2, 2, .2) <= 0, 'attraction never accelerates above cruise');
+});
+
+for (const initialGap of [60, 2]) test(`particle following settles from a ${initialGap} m gap without overlap`, () => {
+  const roads = squareRoads();
+  for (const e of roads.edges) e[8] = e[8].map((v, k) => k % 2 ? 51.5 + (v - 51.5) * 10 : -.13 + (v + .13) * 10);
+  const sim = new CarSim(roads, { population: 2, seed: 1 }); sim.seed();
+  sim.edge.fill(2); sim.lane.fill(0); sim.pos.set([300, 300 - CAR_LENGTH - initialGap]); sim.v.fill(8.04);
+  sim.factor.set([.6, 1]); sim.headway.fill(1.2); sim.pAccel.fill(1.5); sim.decel.fill(2); sim.minGap.fill(2);
+  sim.lapse = () => -1;
+  for (let k = 0; k < 600; k++) {
+    sim.step(.2);
+    assert.ok(sim.pos[0] - sim.pos[1] >= CAR_LENGTH + .49, 'hard separation');
+    assert.ok([...sim.v].every(v => v >= 0 && v <= sim.speed[2]), 'bounded speeds');
+  }
+  const gap = sim.pos[0] - sim.pos[1] - CAR_LENGTH;
+  assert.ok(Math.abs(gap - PARTICLE_GAP) < .3, `settled gap ${gap}`);
+  assert.ok(Math.abs(sim.v[0] - sim.v[1]) < .05, 'relative-speed damping settles');
+});
+
+test('road limits cap even aggressive drivers and transitions to slower roads', () => {
+  const sim = new CarSim(squareRoads(), { population: 40, seed: 9 }); sim.seed(); sim.factor.fill(1.2);
+  sim.speed[2] = 5;
+  for (let k = 0; k < 1200; k++) {
+    sim.step(.2);
+    for (let i = 0; i < sim.n; i++) assert.ok(sim.v[i] <= sim.speed[sim.edge[i]] + 1e-5);
+  }
 });
