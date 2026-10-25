@@ -35,11 +35,21 @@
   "simulation": {
     "population": 5000,
     "minPopulation": 5000,
-    "maxPopulation": 200000,
+    "maxPopulation": 300000,
     "populationStep": 500,
     "stepSeconds": 0.2,
     "seed": 2026,
     "gridlockSeconds": 120
+  },
+  "timeOfDay": {
+    "night": 50000,
+    "day": 200000,
+    "nightFrom": "23:00",
+    "nightTo": "05:00",
+    "dayFrom": "08:00",
+    "dayTo": "19:00",
+    "weekendFactor": 0.8,
+    "maxChangePerMinute": 0.02
   },
   "observations": {
     "zoom": 12,

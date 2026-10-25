@@ -36,8 +36,21 @@
         <label class="layer-toggle"><span>Congestion epicenters<small>Red glow where simulated queues form</small></span><input id="toggle-hotspots" type="checkbox" role="switch" aria-describedby="hotspot-detail"></label>
         <label class="layer-toggle"><span>Colour by personality<small>Aggressive red · neutral black · calm teal · error-prone amber</small></span><input id="toggle-personality" type="checkbox" role="switch"></label>
         <p id="hotspot-detail" class="detail" hidden>Clusters of slow simulated cars in the loaded map area. Model estimates, not observed incidents.</p>
-        <div class="population-heading"><label class="sim-population" for="sim-population">Next run population</label><output id="sim-population-value" for="sim-population">5,000</output></div>
-        <input id="sim-population" type="range" min="5000" max="200000" step="500" value="5000"><p class="detail">Applied only when you re-initialize.</p>
+        <div class="sim-clock">
+          <p id="clock-line" class="clock-line" role="status" aria-live="polite">London time: —</p>
+          <div class="clock-mode" role="group" aria-label="Car count clock"><button id="clock-live" type="button" aria-pressed="true">Live</button><button id="clock-custom" type="button" aria-pressed="false">Custom</button></div>
+          <div id="clock-controls" hidden>
+            <div class="population-heading"><label for="clock-time">Time of day</label><output id="clock-time-value" for="clock-time">18:00</output></div>
+            <input id="clock-time" type="range" min="0" max="1440" step="15" value="1080">
+            <label class="layer-toggle"><span>Weekend<small>Off: weekday</small></span><input id="clock-weekend" type="checkbox" role="switch"></label>
+            <div class="population-heading"><label for="clock-demand">Event demand</label><output id="clock-demand-value" for="clock-demand">1.0×</output></div>
+            <input id="clock-demand" type="range" min="0.5" max="2" step="0.1" value="1">
+          </div>
+          <button id="clock-back" type="button" hidden>Back to live</button>
+          <p id="count-control" class="detail">Count controlled by: time</p>
+        </div>
+        <div class="population-heading"><label class="sim-population" for="sim-population">Manual population</label><output id="sim-population-value" for="sim-population">5,000</output></div>
+        <input id="sim-population" type="range" min="5000" max="300000" step="500" value="5000"><p class="detail">Move it, then re-initialize, to set the count by hand.</p>
         <div class="sim-controls"><button id="sim-pause" type="button" disabled>Pause</button><button id="sim-reinit" type="button" disabled>Re-initialize with live data</button></div><p id="sim-progress" class="detail" role="status" aria-live="polite"></p><p class="shared-note">Pause and re-initialize apply to all viewers.</p>
       </section>
       <section class="control-section"><h2><span>03</span> Statistics</h2>

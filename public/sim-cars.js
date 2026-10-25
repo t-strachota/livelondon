@@ -191,6 +191,9 @@ export function createSimulatedCars(map, toggle, signalToggle) {
   const info = $('car-info'), connection = $('sim-connection'), progressLine = $('sim-progress');
   const slider = $('sim-population'), sliderValue = $('sim-population-value'), pauseButton = $('sim-pause'), reinitButton = $('sim-reinit');
   const hotspotToggle = $('toggle-hotspots'), personalityToggle = $('toggle-personality');
+  const clockLive = $('clock-live'), clockCustom = $('clock-custom'), clockControls = $('clock-controls'), clockBack = $('clock-back');
+  const clockTime = $('clock-time'), clockWeekend = $('clock-weekend'), clockDemand = $('clock-demand');
+  let manualPending = false, clockTimer;
   try { personalityToggle.checked = localStorage.getItem('london-map:personality') === 'on'; } catch { /* Default off. */ }
   try { hotspotToggle.checked = localStorage.getItem('london-map:hotspots') === 'on'; } catch { /* Optional persistence. */ }
   let lastHotspotAt = 0;
@@ -422,6 +425,17 @@ export function createSimulatedCars(map, toggle, signalToggle) {
     const mix = status?.personalities;
     $('sim-personalities').textContent = mix ? PERSONALITIES.map(p => `${mix[p].toLocaleString()} ${p}`).join(' · ') : '—';
     $('sim-health').textContent = perf ? `${perf.realtimeFactor}× real time · step ${perf.stepMs} ms · ${health.gridlocked} gridlocked · ${fps.toFixed(0)} FPS${perf.realtimeFactor < 1 ? ' · degraded' : ''}` : `${fps.toFixed(0)} FPS`;
+    const c = status?.clock;
+    if (c) {
+      const days = c.simulating ? (c.simulating.weekend ? 'Sat' : 'Mon–Fri') : '';
+      $('clock-line').textContent = c.mode === 'custom' ? `Simulating: ${c.simulating.time} ${days}, demand ${c.simulating.demand.toFixed(1)}×` : `London time: ${c.londonTime} (live)`;
+      clockLive.setAttribute('aria-pressed', String(c.mode === 'live'));
+      clockCustom.setAttribute('aria-pressed', String(c.mode === 'custom'));
+      clockControls.hidden = c.mode !== 'custom';
+      clockBack.hidden = c.mode === 'live';
+      $('count-control').textContent = c.mode === 'manual' ? 'Count controlled by: manual slider (time paused)'
+        : `Count controlled by: time · target ${c.target.toLocaleString()} cars, changing up to 2%/min`;
+    }
     updateClosurePanel();
     const job = status?.job;
     progressLine.textContent = job?.state === 'preparing' ? `Re-initializing (${job.population.toLocaleString()} cars): ${job.stage} ${Math.round((job.fraction ?? 0) * 100)}%`
@@ -445,10 +459,27 @@ export function createSimulatedCars(map, toggle, signalToggle) {
   });
   reinitButton.addEventListener('click', async () => {
     reinitButton.disabled = true;
-    try { const { job } = await post('/api/simulation/reinitialize', { population: Number(slider.value) }); status = { ...status, job }; }
+    // Only a moved slider sets the count by hand; otherwise the clock's count is used.
+    try { const { job } = await post('/api/simulation/reinitialize', manualPending ? { population: Number(slider.value) } : {}); status = { ...status, job }; manualPending = false; }
     catch (error) { progressLine.textContent = `Re-initialization refused: ${error.message}`; reinitButton.disabled = false; }
   });
-  slider.addEventListener('input', () => { sliderValue.textContent = Number(slider.value).toLocaleString(); });
+  slider.addEventListener('input', () => { sliderValue.textContent = Number(slider.value).toLocaleString(); manualPending = true; });
+
+  // Live / Custom clock for the car count; custom changes apply gradually on the server.
+  const showClockInputs = () => {
+    $('clock-time-value').textContent = `${String(Math.floor(clockTime.value / 60)).padStart(2, '0')}:${String(clockTime.value % 60).padStart(2, '0')}`;
+    $('clock-demand-value').textContent = `${Number(clockDemand.value).toFixed(1)}×`;
+  };
+  async function setClock(body) {
+    try { acceptStatus(await post('/api/simulation/clock', body)); } catch (error) { progressLine.textContent = `Clock change refused: ${error.message}`; }
+  }
+  const sendCustom = () => setClock({ mode: 'custom', minutes: Number(clockTime.value), weekend: clockWeekend.checked, demand: Number(clockDemand.value) });
+  clockLive.addEventListener('click', () => setClock({ mode: 'live' }));
+  clockBack.addEventListener('click', () => setClock({ mode: 'live' }));
+  clockCustom.addEventListener('click', sendCustom);
+  for (const input of [clockTime, clockDemand]) input.addEventListener('input', () => { showClockInputs(); clearTimeout(clockTimer); clockTimer = setTimeout(sendCustom, 250); });
+  clockWeekend.addEventListener('change', sendCustom);
+  showClockInputs();
 
   function update() {
     enabled = toggle.checked;

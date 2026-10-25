@@ -155,3 +155,10 @@ button:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); 
 .popup-actions button { font: 600 12px system-ui, sans-serif; padding: 5px 9px; border: 0; border-radius: 7px; background: #d0021b; color: #fff; cursor: pointer; }
 @media (max-width: 600px) { .closure-card { top: auto; bottom: 90px; right: 12px; } }
 .stream-dot.trains { background: #6950A1; }
+
+.sim-clock { display: grid; gap: 6px; margin: 8px 0 12px; }
+.clock-line { margin: 0; font: 600 13px system-ui, sans-serif; }
+.clock-mode { display: flex; gap: 6px; }
+.clock-mode button, #clock-back { flex: 1; padding: 6px 10px; border-radius: 8px; border: 1px solid currentColor; background: transparent; color: inherit; font: 600 12px system-ui, sans-serif; cursor: pointer; }
+.clock-mode button[aria-pressed="true"] { background: #1f1f1f; color: #fff; }
+#clock-controls { display: grid; gap: 6px; }

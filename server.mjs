@@ -34,7 +34,7 @@ const files = new Map([
   ['/vendor/maplibre-gl-shared.mjs', ['node_modules/maplibre-gl/dist/maplibre-gl-shared.mjs', 'text/javascript; charset=utf-8']],
   ['/vendor/maplibre-gl.css', ['node_modules/maplibre-gl/dist/maplibre-gl.css', 'text/css; charset=utf-8']],
 ]);
-const POST_ROUTES = new Set(['/api/simulation/reinitialize', '/api/simulation/pause', '/api/simulation/closures', '/api/stops']);
+const POST_ROUTES = new Set(['/api/simulation/reinitialize', '/api/simulation/pause', '/api/simulation/closures', '/api/simulation/clock', '/api/stops']);
 // A slow client skips snapshots rather than queueing them without bound.
 const MAX_BUFFERED_BYTES = 4 * 2 ** 20;
 
@@ -85,7 +85,8 @@ export function createApp({ feed = new BusFeed({ apiKey: process.env.BODS_API_KE
           if (!simulation.setPaused(body.paused)) return json(409, { error: 'No running simulation to pause' });
           return json(200, simulation.getStatus());
         }
-        return json(202, { job: simulation.reinitialize({ population: body.population ?? simulation.population }) });
+        if (pathname === '/api/simulation/clock') return json(200, simulation.setClock(body));
+        return json(202, { job: simulation.reinitialize({ population: body.population }) });
       } catch (error) {
         return json(error.status ?? 500, { error: error.message });
       }
