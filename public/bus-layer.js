@@ -44,6 +44,19 @@ export function makeCar() {
   });
 }
 
+// A traffic light: grey pole and black head; the lit lamp (part 0) is drawn per instance at the
+// red (top), amber or green (bottom) position in that colour. Exaggerated in size to read at zoom 16+.
+const LAMP_HEIGHT = [4.0, 4.5, 5.0]; // GREEN, AMBER, RED
+const LAMP_COLOUR = [[.18, .85, .3], [1, .7, 0], [1, .12, .1]];
+export function makeTrafficLight() {
+  const parts = [
+    [new THREE.BoxGeometry(.72, .72, .42), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true })],
+    [new THREE.CylinderGeometry(.08, .08, 3.6, 8).rotateX(Math.PI / 2).translate(0, 0, 1.8), new THREE.MeshLambertMaterial({ color: 0x8a8d88, transparent: true })],
+    [box([.62, .62, 1.7], [0, 0, 4.5]), new THREE.MeshLambertMaterial({ color: 0x1a1b1c, transparent: true })],
+  ];
+  return parts.map(([geometry, material]) => ({ geometry, material }));
+}
+
 export class BusLayer {
   constructor(map, onFailure = () => {}, { id = 'live-bus-models', makeParts = makeBus } = {}) {
     this.id = id;
@@ -135,6 +148,36 @@ export class BusLayer {
     for (const mesh of this.meshes) {
       mesh.count = n;
       mesh.instanceMatrix.needsUpdate = true;
+      mesh.material.opacity = this.opacity;
+      mesh.material.depthWrite = this.opacity >= 1;
+    }
+  }
+
+  // Simulated signals: positions [x, y, z per approach] in layer metres, states 0-2 (255 = unknown).
+  updateSignals(positions, states, count, [west, south, east, north]) {
+    if (this.failed || !this.renderer) return;
+    this.opacity = count ? modelOpacity(this.map.getZoom()) : 0;
+    let n = 0;
+    if (this.opacity > 0) {
+      this.ensureCapacity(count);
+      for (let k = 0; k < count; k++) {
+        const state = states[k], x = positions[3 * k], y = positions[3 * k + 1];
+        if (state > 2 || x < west || x > east || y < south || y > north) continue;
+        this.transform.position.set(x, y, 0);
+        this.transform.rotation.set(0, 0, 0);
+        this.transform.updateMatrix();
+        for (let m = 1; m < this.meshes.length; m++) this.meshes[m].setMatrixAt(n, this.transform.matrix);
+        this.transform.position.z = LAMP_HEIGHT[state];
+        this.transform.updateMatrix();
+        this.meshes[0].setMatrixAt(n, this.transform.matrix);
+        this.meshes[0].setColorAt(n, this.color.setRGB(...LAMP_COLOUR[state]));
+        n++;
+      }
+    }
+    for (const mesh of this.meshes) {
+      mesh.count = n;
+      mesh.instanceMatrix.needsUpdate = true;
+      if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
       mesh.material.opacity = this.opacity;
       mesh.material.depthWrite = this.opacity >= 1;
     }

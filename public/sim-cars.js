@@ -88,6 +88,7 @@ class CarLayer {
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
     geometry.setAttribute('colour', new THREE.BufferAttribute(new Float32Array(n * 4), 4).setUsage(THREE.DynamicDrawUsage));
+    this.signalStates = new Uint8Array(n).fill(255);
     this.signals = new THREE.Points(geometry, this.signalMaterial);
     this.signals.frustumCulled = false;
     this.signals.visible = false;
@@ -99,7 +100,8 @@ class CarLayer {
     if (!this.signals) return;
     const attribute = this.signals.geometry.getAttribute('colour'), colours = attribute.array;
     colours.fill(0);
-    for (let k = 0; k < indices.length; k++) if (indices[k] * 4 < colours.length) colours.set(SIGNAL_COLOURS[states[k]] ?? SIGNAL_COLOURS[2], indices[k] * 4);
+    this.signalStates.fill(255);
+    for (let k = 0; k < indices.length; k++) if (indices[k] * 4 < colours.length) { colours.set(SIGNAL_COLOURS[states[k]] ?? SIGNAL_COLOURS[2], indices[k] * 4); this.signalStates[indices[k]] = states[k]; }
     attribute.needsUpdate = true;
   }
 
@@ -142,7 +144,8 @@ class CarLayer {
 
   render(gl, args) {
     const zoom = this.map.getZoom();
-    if (this.signals) this.signals.visible = this.showSignals && zoom >= SIGNAL_MIN_ZOOM;
+    // Signal points give way to 3D traffic lights at the same zoom as the 3D cars.
+    if (this.signals) this.signals.visible = this.showSignals && zoom >= SIGNAL_MIN_ZOOM && modelOpacity(zoom) < 1;
     if (!this.count && !this.signals?.visible) return;
     // Dots fade out as the 3D car models fade in (same zoom as the buses).
     this.material.uniforms.opacity.value = 1 - modelOpacity(zoom);
@@ -169,8 +172,12 @@ export function createSimulatedCars(map, toggle, signalToggle) {
   const info = $('car-info'), connection = $('sim-connection'), progressLine = $('sim-progress');
   const slider = $('sim-population'), sliderValue = $('sim-population-value'), pauseButton = $('sim-pause'), reinitButton = $('sim-reinit');
   const layer = new CarLayer();
-  let models = null; // 3D cars, loaded like the bus models
-  import('/bus-layer.js').then(({ BusLayer, makeCar }) => { models = new BusLayer(map, () => { models = null; }, { id: 'simulated-car-models', makeParts: makeCar }); addLayer(); }).catch(() => {});
+  let models = null, lights = null; // 3D cars and traffic lights, loaded like the bus models
+  import('/bus-layer.js').then(({ BusLayer, makeCar, makeTrafficLight }) => {
+    models = new BusLayer(map, () => { models = null; }, { id: 'simulated-car-models', makeParts: makeCar });
+    lights = new BusLayer(map, () => { lights = null; }, { id: 'simulated-signal-models', makeParts: makeTrafficLight });
+    addLayer();
+  }).catch(() => {});
   let enabled = false, socket, retry = 1000, retryTimer, status = null, runId = null, snapshots = [], connected = false;
   let signalsLoading = false, signalFrames = 0;
   let renderTime = null, lastFrame = 0, lastDom = 0, lastSnapshotAt = 0, frames = 0, fpsSince = performance.now(), fps = 0, visible = 0, xy = new Float32Array(0), received = 0;
@@ -178,6 +185,7 @@ export function createSimulatedCars(map, toggle, signalToggle) {
   function addLayer() {
     if (!map.getLayer(layer.id)) map.addLayer(layer, map.getLayer('live-bus-dots') ? 'live-bus-dots' : undefined);
     if (models && !map.getLayer(models.id)) map.addLayer(models);
+    if (lights && !map.getLayer(lights.id)) map.addLayer(lights);
   }
 
   function sendViewport() {
@@ -268,6 +276,12 @@ export function createSimulatedCars(map, toggle, signalToggle) {
       models?.updateCars(xy, next.angle, count, [west, south, east, north]);
       map.triggerRepaint();
     } else if (layer.count) { layer.setPositions(xy, 0); models?.updateCars(xy, [], 0, [0, 0, 0, 0]); map.triggerRepaint(); }
+    if (lights) {
+      const b = map.getBounds(), [west, south] = layer.toLayer(b.getWest(), b.getSouth()), [east, north] = layer.toLayer(b.getEast(), b.getNorth());
+      const shown = layer.showSignals && layer.signals ? layer.signalStates.length : 0;
+      lights.updateSignals(layer.signals?.geometry.getAttribute('position').array, layer.signalStates, shown, [west, south, east, north]);
+      if (shown && lights.opacity) map.triggerRepaint();
+    }
     if (now - lastDom >= 500) { updatePanel(now); lastDom = now; }
   }
 
