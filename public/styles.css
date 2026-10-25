@@ -126,16 +126,19 @@ button:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); 
 @keyframes loading-slide { from { transform: translateX(-100%); } to { transform: translateX(390%); } }
 @media (max-width: 600px) { .panel { top: 12px; left: 12px; width: min(290px, calc(100vw - 76px)); max-height: calc(100dvh - 24px); } .panel-header { padding: 15px 17px; } .control-section { padding: 14px 17px; } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
-.closure-card { position: absolute; z-index: 3; top: 20px; right: 20px; width: min(260px, calc(100vw - 40px)); display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
-.closure-button { font: 600 13px system-ui, sans-serif; padding: 10px 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); color: var(--ink); box-shadow: var(--shadow); cursor: pointer; }
+.closure-card { position: absolute; z-index: 3; top: 20px; right: 20px; width: min(340px, calc(100vw - 40px)); display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
+.closure-button { font: 600 15px system-ui, sans-serif; padding: 12px 20px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); color: var(--ink); box-shadow: var(--shadow); cursor: pointer; }
 .closure-button[aria-pressed=true] { background: #d0021b; border-color: #d0021b; color: #fff; }
-#sim-closures { width: 100%; padding: 12px 14px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); color: var(--ink); box-shadow: var(--shadow); max-height: calc(100dvh - 120px); overflow-y: auto; }
-#sim-closures h3 { margin: 8px 0 4px; font-size: 12px; }
-#sim-closures ul, #sim-closures ol { margin: 0; font-size: 12px; }
-#sim-closures ol { padding-left: 18px; }
+#sim-closures { width: 100%; padding: 16px 18px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); color: var(--ink); box-shadow: var(--shadow); max-height: calc(100dvh - 120px); overflow-y: auto; }
+#sim-closures h3 { margin: 12px 0 6px; font-size: 15px; }
+#sim-closures .detail { font-size: 13px; line-height: 1.45; }
+#sim-closures .impact-key { width: 20px; height: 6px; }
+#sim-closures ul, #sim-closures ol { margin: 0; font-size: 14px; line-height: 1.45; }
+#sim-closures ol { padding-left: 20px; }
+#sim-closures ol li { margin: 4px 0; }
 #sim-closures ul { list-style: none; padding: 0; }
 #sim-closures ul li { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin: 4px 0; }
-#sim-closures ul button { font: 600 11px system-ui, sans-serif; padding: 3px 8px; border: 0; border-radius: 7px; background: #d0021b; color: #fff; cursor: pointer; }
+#sim-closures ul button { font: 600 13px system-ui, sans-serif; padding: 5px 11px; border: 0; border-radius: 7px; background: #d0021b; color: #fff; cursor: pointer; }
 #sim-closures ul button:disabled { opacity: .6; cursor: default; }
 .maplibregl-canvas.closing-roads { cursor: crosshair; }
 @media (max-width: 600px) { .closure-card { top: auto; bottom: 90px; right: 12px; } }
