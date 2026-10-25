@@ -76,6 +76,7 @@ export class BusLayer {
     this.id = id;
     this.makeParts = makeParts;
     this.alpha = alpha; // extra transparency, e.g. for trains that are underground
+    this.focus = 1; // focus mode fade (stop-tools.js)
     this.type = 'custom';
     this.renderingMode = '3d';
     this.map = map;
@@ -202,6 +203,8 @@ export class BusLayer {
   render(gl, args) {
     if (this.failed || !this.opacity || !this.meshes.some(mesh => mesh.count)) return;
     try {
+      const opacity = this.opacity * this.alpha * this.focus;
+      for (const mesh of this.meshes) { mesh.material.opacity = opacity; mesh.material.depthWrite = opacity >= 1; }
       this.camera.projectionMatrix.fromArray(args.defaultProjectionData.mainMatrix).multiply(this.originMatrix);
       this.camera.projectionMatrixInverse.copy(this.camera.projectionMatrix).invert();
       this.renderer.resetState();

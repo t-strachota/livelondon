@@ -27,27 +27,43 @@
         <label class="layer-toggle" id="cctv-toggle"><span><i class="stream-dot cameras"></i>Live cameras<small>TfL street views</small></span><input id="toggle-cameras" type="checkbox" role="switch" aria-controls="camera-status"></label><p id="camera-status" class="detail" hidden>Loading traffic cameras…</p>
         <label class="layer-toggle" id="trains-toggle"><span><i class="stream-dot trains"></i>Trains<small>Tube, Overground, Elizabeth line · estimated from TfL arrival predictions</small></span><input id="toggle-trains" type="checkbox" role="switch" aria-describedby="train-status"></label>
         <label class="layer-toggle"><span>Train lines<small>Official line colours</small></span><input id="toggle-train-lines" type="checkbox" role="switch" checked></label>
+        <label class="layer-toggle"><span>Train busyness<small>Blue glow: station crowding (live or typical) spread along the line, not on-train load</small></span><input id="toggle-train-busyness" type="checkbox" role="switch"></label>
         <p id="train-status" class="detail" role="status" aria-live="polite" hidden></p>
       </section>
       <section class="control-section"><h2><span>02</span> Simulation Settings</h2>
         <label class="layer-toggle" id="vehicles-toggle"><span><i class="stream-dot cars"></i>Simulated cars<small>Persistent model · independent of live GPS</small></span><input id="toggle-cars" type="checkbox" role="switch"></label>
         <label class="layer-toggle"><span>Traffic lights<small>Simulated phases · visible up close</small></span><input id="toggle-signals" type="checkbox" role="switch" checked></label>
         <label class="layer-toggle"><span>Congestion epicenters<small>Red glow where simulated queues form</small></span><input id="toggle-hotspots" type="checkbox" role="switch" aria-describedby="hotspot-detail"></label>
+        <label class="layer-toggle"><span>Colour by personality<small>Aggressive red · neutral black · calm teal · error-prone amber</small></span><input id="toggle-personality" type="checkbox" role="switch"></label>
         <p id="hotspot-detail" class="detail" hidden>Clusters of slow simulated cars in the loaded map area. Model estimates, not observed incidents.</p>
         <div class="population-heading"><label class="sim-population" for="sim-population">Next run population</label><output id="sim-population-value" for="sim-population">5,000</output></div>
         <input id="sim-population" type="range" min="5000" max="200000" step="500" value="5000"><p class="detail">Applied only when you re-initialize.</p>
         <div class="sim-controls"><button id="sim-pause" type="button" disabled>Pause</button><button id="sim-reinit" type="button" disabled>Re-initialize with live data</button></div><p id="sim-progress" class="detail" role="status" aria-live="polite"></p><p class="shared-note">Pause and re-initialize apply to all viewers.</p>
       </section>
       <section class="control-section"><h2><span>03</span> Statistics</h2>
-        <div id="car-info"><p id="sim-connection" class="status" data-status="loading" role="status" aria-live="polite">Connecting to simulation</p><dl class="metrics"><dt>Cars · all London</dt><dd id="sim-global">—</dd><dt>Visible cars</dt><dd id="sim-visible">—</dd><dt>Average speed</dt><dd id="sim-speed">—</dd><dt>Simulation time</dt><dd id="sim-time">—</dd><dt>Initial traffic data</dt><dd id="sim-data">—</dd><dt>Simulation health</dt><dd id="sim-health">—</dd></dl></div>
+        <div id="car-info"><p id="sim-connection" class="status" data-status="loading" role="status" aria-live="polite">Connecting to simulation</p><dl class="metrics"><dt>Cars · all London</dt><dd id="sim-global">—</dd><dt>Visible cars</dt><dd id="sim-visible">—</dd><dt>Average speed</dt><dd id="sim-speed">—</dd><dt>Simulation time</dt><dd id="sim-time">—</dd><dt>Initial traffic data</dt><dd id="sim-data">—</dd><dt>Simulation health</dt><dd id="sim-health">—</dd><dt>Personalities</dt><dd id="sim-personalities">—</dd></dl></div>
         <details id="bus-info" class="feed-details" open><summary>Live bus feed</summary><div id="feed-status" class="status" data-status="loading" role="status" aria-live="polite">Connecting to live buses</div><p id="bus-count" class="count">Waiting for buses</p><p id="feed-detail" class="detail">GPS locations from TfL via BODS.</p><p id="stop-detail" class="detail"></p><p id="map-hint" class="hint">Zoom in for 3D buses. Buses wait at stops on their own route.</p></details>
         <details class="about-details"><summary>About the model &amp; data</summary><p class="detail">Simulated car positions are seeded from live TomTom traffic observations and then evolve independently. They are estimates, not live tracking of individual vehicles. Population is a modelling choice. Traffic light locations come from OpenStreetMap; timing is simulated. Turn restrictions and conflicts at unsignalised junctions are not modelled. Epicenters highlight cells with at least 8 cars where at least half travel below 11 km/h; signals can also cause these queues.</p></details>
       </section>
       <footer class="panel-footer"><span class="live-indicator"></span> LONDON IN MOTION <span>EST. / LIVE</span></footer>
     </div>
   </aside>
-  <div class="closure-card" aria-label="Road closures">
-    <button id="closure-mode" class="closure-button" type="button" aria-pressed="false" aria-controls="sim-closures">Close roads</button>
+  <div class="closure-card" aria-label="Stop tools">
+    <div class="stop-tools" role="group" aria-label="Stop tools: one at a time">
+      <button id="closure-mode" class="closure-button" type="button" aria-pressed="false" aria-controls="sim-closures">Stop road</button>
+      <button id="stop-line-mode" class="closure-button" type="button" aria-pressed="false">Stop train line</button>
+      <button id="stop-bus-mode" class="closure-button" type="button" aria-pressed="false">Stop bus</button>
+      <button id="exit-focus" class="closure-button exit-focus" type="button" hidden>Exit focus</button>
+    </div>
+    <p id="tool-banner" class="tool-banner" role="status" aria-live="polite" hidden></p>
+    <section id="stopped-panel" class="stopped-panel" hidden aria-label="Stopped trains and buses">
+      <h3>STOPPED</h3>
+      <ul id="stopped-list"></ul>
+      <p id="stopped-summary" class="detail"></p>
+      <h3>Most affected roads</h3>
+      <ol id="stopped-affected"></ol>
+      <p class="detail"><strong>Estimated, assumption-based.</strong> Displaced passengers become extra cars near the stopped line's stations or bus route: passengers per vehicle = assumed capacity × average load, 10% switch to driving, 1.3 people per car.</p>
+    </section>
     <section id="sim-closures" hidden>
       <p id="closure-note" class="detail" role="status" aria-live="polite"></p>
       <ul id="sim-closure-list"></ul>

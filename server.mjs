@@ -6,6 +6,8 @@ import { BusFeed, POLL_MS } from './lib/feed.mjs';
 import { StopCatalog } from './lib/stops.mjs';
 import { SIM_CONFIG, SimulationSupervisor, cullSnapshot } from './lib/simulation.mjs';
 import { TrainFeed } from './lib/trains.mjs';
+import { CrowdingFeed } from './lib/crowding.mjs';
+import { StopControl } from './lib/stop-control.mjs';
 
 const root = new URL('./', import.meta.url);
 const files = new Map([
@@ -18,11 +20,13 @@ const files = new Map([
   ['/traffic.js', ['public/traffic.js', 'text/javascript; charset=utf-8']],
   ['/sim-cars.js', ['public/sim-cars.js', 'text/javascript; charset=utf-8']],
   ['/trains.js', ['public/trains.js', 'text/javascript; charset=utf-8']],
+  ['/stop-tools.js', ['public/stop-tools.js', 'text/javascript; charset=utf-8']],
   ['/cameras.js', ['public/cameras.js', 'text/javascript; charset=utf-8']],
   ['/cameras.css', ['public/cameras.css', 'text/css; charset=utf-8']],
   ['/bus-layer.js', ['public/bus-layer.js', 'text/javascript; charset=utf-8']],
   ['/styles.css', ['public/styles.css', 'text/css; charset=utf-8']],
   ['/lib/motion.mjs', ['lib/motion.mjs', 'text/javascript; charset=utf-8']],
+  ['/lib/personality.mjs', ['lib/personality.mjs', 'text/javascript; charset=utf-8']],
   ['/vendor/three.module.js', ['node_modules/three/build/three.module.js', 'text/javascript; charset=utf-8']],
   ['/vendor/BufferGeometryUtils.js', ['node_modules/three/examples/jsm/utils/BufferGeometryUtils.js', 'text/javascript; charset=utf-8']],
   ['/vendor/maplibre-gl.mjs', ['node_modules/maplibre-gl/dist/maplibre-gl.mjs', 'text/javascript; charset=utf-8']],
@@ -30,7 +34,7 @@ const files = new Map([
   ['/vendor/maplibre-gl-shared.mjs', ['node_modules/maplibre-gl/dist/maplibre-gl-shared.mjs', 'text/javascript; charset=utf-8']],
   ['/vendor/maplibre-gl.css', ['node_modules/maplibre-gl/dist/maplibre-gl.css', 'text/css; charset=utf-8']],
 ]);
-const POST_ROUTES = new Set(['/api/simulation/reinitialize', '/api/simulation/pause', '/api/simulation/closures']);
+const POST_ROUTES = new Set(['/api/simulation/reinitialize', '/api/simulation/pause', '/api/simulation/closures', '/api/stops']);
 // A slow client skips snapshots rather than queueing them without bound.
 const MAX_BUFFERED_BYTES = 4 * 2 ** 20;
 
@@ -46,12 +50,18 @@ async function readJson(req, limit = 1024) {
   try { return text ? JSON.parse(text) : {}; } catch { throw Object.assign(new Error('Invalid JSON'), { status: 400 }); }
 }
 
-export function createApp({ feed = new BusFeed({ apiKey: process.env.BODS_API_KEY?.trim() }), stops = null, simulation = null, trains = null } = {}) {
+export function createApp({ feed = new BusFeed({ apiKey: process.env.BODS_API_KEY?.trim() }), stops = null, simulation = null, trains = null, crowding = null, stopControl = null } = {}) {
   const server = createServer(async (req, res) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
     const pathname = new URL(req.url, 'http://localhost').pathname;
     const json = (status, value) => res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' }).end(JSON.stringify(value));
+    if (req.method === 'POST' && pathname === '/api/stops') {
+      // {action: 'stop-line', line} | {action: 'stop-bus', id} | {action: 'stop-route', route} | {action: 'reopen', key}
+      if (!stopControl) return json(503, { error: 'Stopping is not configured' });
+      if (!sameOrigin(req)) return json(403, { error: 'Cross-origin request refused' });
+      try { return json(200, await stopControl.act(await readJson(req))); } catch (error) { return json(error.status ?? 500, { error: error.message }); }
+    }
     if (req.method === 'POST' && POST_ROUTES.has(pathname)) {
       if (!simulation) return json(503, { error: 'Simulation not configured' });
       if (!sameOrigin(req)) return json(403, { error: 'Cross-origin request refused' });
@@ -88,6 +98,7 @@ export function createApp({ feed = new BusFeed({ apiKey: process.env.BODS_API_KE
       let body;
       if (pathname === '/api/buses') {
         const snapshot = await feed.getSnapshot();
+        if (stopControl) snapshot.buses = stopControl.applyToBuses(snapshot.buses);
         if (stops) {
           snapshot.buses = snapshot.buses.map(bus => ({ ...bus, routeStop: stops.match(bus) }));
           snapshot.stopDataStatus = stops.status;
@@ -97,6 +108,15 @@ export function createApp({ feed = new BusFeed({ apiKey: process.env.BODS_API_KE
         res.setHeader('Content-Type', 'application/json; charset=utf-8');
         res.setHeader('Cache-Control', 'no-store');
         body = Buffer.from(JSON.stringify(snapshot));
+      } else if (pathname === '/api/stops') {
+        if (!stopControl) return json(503, { items: [] });
+        return json(200, stopControl.summary());
+      } else if (pathname === '/api/trains/busyness') {
+        // Station crowding spread along the lines (live or typical per station); not on-train load.
+        if (!crowding) return json(503, { type: 'FeatureCollection', features: [] });
+        body = Buffer.from(JSON.stringify(crowding.geojson));
+        res.setHeader('Content-Type', 'application/json; charset=utf-8');
+        res.setHeader('Cache-Control', 'no-cache');
       } else if (pathname === '/api/trains' || pathname === '/api/trains/lines') {
         // Estimated train positions from TfL arrival predictions; the TfL key never leaves the server.
         if (!trains) return json(503, { status: 'unavailable', trains: [] });
@@ -188,9 +208,11 @@ if (import.meta.main) {
   const feed = new BusFeed({ apiKey: process.env.BODS_API_KEY?.trim() });
   const simulation = new SimulationSupervisor({ population: Number(process.env.SIM_POPULATION) || undefined, roads: process.env.SIM_ROADS || undefined }).start();
   const trains = new TrainFeed({ appKey: process.env.TFL_APP_KEY?.trim() });
-  const server = createApp({ feed, stops, simulation, trains });
+  const crowding = new CrowdingFeed({ trains, appKey: process.env.TFL_APP_KEY?.trim() });
+  const stopControl = new StopControl({ trains, feed, stops, simulation });
+  const server = createApp({ feed, stops, simulation, trains, crowding, stopControl });
   void stops.start();
-  void trains.start();
+  void trains.start().then(() => crowding.start());
   // Bus observations continue server-side whether or not any browser shows the overlay.
   void feed.getSnapshot();
   const busTimer = setInterval(() => void feed.getSnapshot(), POLL_MS);
@@ -200,13 +222,14 @@ if (import.meta.main) {
     if (simulation.lifecycle === 'unavailable') console.log(`Car simulation unavailable: ${simulation.reason}`);
   });
   // The simulation worker would otherwise keep a server that never started alive.
-  server.on('error', async error => { console.error(`Server could not start: ${error.code}`); clearInterval(busTimer); trains.stop(); await simulation.close(); process.exit(1); });
+  server.on('error', async error => { console.error(`Server could not start: ${error.code}`); clearInterval(busTimer); trains.stop(); crowding.stop(); await simulation.close(); process.exit(1); });
   let stopping = false;
   const shutdown = async () => {
     if (stopping) return;
     stopping = true;
     clearInterval(busTimer);
     trains.stop();
+    crowding.stop();
     server.close();
     await simulation.close();
     process.exit(0);

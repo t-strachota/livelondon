@@ -41,6 +41,10 @@ export function interpolate(previous, next, t, out) {
   return next.count;
 }
 
+import { COLOURS, PERSONALITIES, personalityOf } from '/lib/personality.mjs';
+
+const PERSONALITY_RGB = PERSONALITIES.map(p => [1, 3, 5].map(k => parseInt(COLOURS[p].slice(k, k + 2), 16) / 255));
+
 class CarLayer {
   constructor() {
     this.id = 'simulated-cars';
@@ -50,6 +54,7 @@ class CarLayer {
     this.count = 0;
     this.origin = maplibregl.MercatorCoordinate.fromLngLat([-0.128, 51.507]);
     this.unit = this.origin.meterInMercatorCoordinateUnits();
+    this.focus = 1; this.signalFocus = 1; // focus mode fades (stop-tools.js)
   }
 
   onAdd(map, gl) {
@@ -58,11 +63,12 @@ class CarLayer {
     this.scene = new THREE.Scene();
     this.originMatrix = new THREE.Matrix4().makeTranslation(this.origin.x, this.origin.y, 0).scale(new THREE.Vector3(this.unit, -this.unit, this.unit));
     this.material = new THREE.ShaderMaterial({
-      uniforms: { size: { value: 4 }, opacity: { value: 1 } },
+      uniforms: { size: { value: 4 }, opacity: { value: 1 }, tint: { value: this.tint ?? 0 } },
       transparent: true, depthTest: false, depthWrite: false,
-      vertexShader: 'uniform float size; void main() { gl_PointSize = size; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+      vertexShader: 'uniform float size; attribute vec3 colour; varying vec3 vColour; void main() { vColour = colour; gl_PointSize = size; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
       // Black dot with a thin white rim so cars stay visible on dark roads and stand apart from red buses.
-      fragmentShader: 'uniform float opacity; void main() { float d = length(gl_PointCoord - 0.5); if (d > 0.5) discard; gl_FragColor = d > 0.36 ? vec4(1.0, 1.0, 1.0, opacity) : vec4(0.0, 0.0, 0.0, opacity); }',
+      // With "Colour by personality" on (tint 1) the dot takes its personality colour.
+      fragmentShader: 'uniform float opacity; uniform float tint; varying vec3 vColour; void main() { float d = length(gl_PointCoord - 0.5); if (d > 0.5) discard; gl_FragColor = d > 0.36 ? vec4(1.0, 1.0, 1.0, opacity) : vec4(vColour * tint, opacity); }',
     });
     this.renderer = new THREE.WebGLRenderer({ canvas: map.getCanvas(), context: gl });
     this.renderer.autoClear = false;
@@ -71,9 +77,9 @@ class CarLayer {
     this.capacity = 0;
     this.ensureCapacity(1024);
     this.signalMaterial = new THREE.ShaderMaterial({
-      uniforms: { size: { value: 8 } }, transparent: true, depthTest: false, depthWrite: false,
+      uniforms: { size: { value: 8 }, focus: { value: 1 } }, transparent: true, depthTest: false, depthWrite: false,
       vertexShader: 'uniform float size; attribute vec4 colour; varying vec4 vColour; void main() { vColour = colour; gl_PointSize = size; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
-      fragmentShader: 'varying vec4 vColour; void main() { float d = length(gl_PointCoord - 0.5); if (d > 0.5 || vColour.a == 0.0) discard; gl_FragColor = d > 0.36 ? vec4(0.1, 0.1, 0.1, 1.0) : vColour; }',
+      fragmentShader: 'uniform float focus; varying vec4 vColour; void main() { float d = length(gl_PointCoord - 0.5); if (d > 0.5 || vColour.a == 0.0) discard; gl_FragColor = d > 0.36 ? vec4(0.1, 0.1, 0.1, focus) : vec4(vColour.rgb, vColour.a * focus); }',
     });
     this.signals = null;
     if (this.signalLonLat) this.setSignalPositions(this.signalLonLat);
@@ -111,8 +117,11 @@ class CarLayer {
     this.capacity = 2 ** Math.ceil(Math.log2(Math.max(1024, count)));
     if (this.points) { this.scene.remove(this.points); this.points.geometry.dispose(); }
     this.positions = new Float32Array(this.capacity * 3);
+    this.colours = new Float32Array(this.capacity * 3);
+    this.colouredFor = null;
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute('position', new THREE.BufferAttribute(this.positions, 3).setUsage(THREE.DynamicDrawUsage));
+    geometry.setAttribute('colour', new THREE.BufferAttribute(this.colours, 3).setUsage(THREE.DynamicDrawUsage));
     this.points = new THREE.Points(geometry, this.material);
     this.points.frustumCulled = false;
     this.scene.add(this.points);
@@ -128,6 +137,14 @@ class CarLayer {
     attribute.addUpdateRange?.(0, count * 3);
     this.points.geometry.setDrawRange(0, count);
     this.count = count;
+  }
+
+  // Personality colours for the drawn cars (ids in draw order), worked out from the run seed.
+  setColours(ids, count, seed) {
+    if (!this.points || this.colouredFor === ids) return;
+    this.colouredFor = ids;
+    for (let i = 0; i < count; i++) this.colours.set(PERSONALITY_RGB[personalityOf(seed, ids[i])], 3 * i);
+    this.points.geometry.getAttribute('colour').needsUpdate = true;
   }
 
   // Web Mercator metres east/north of the layer origin.
@@ -149,7 +166,8 @@ class CarLayer {
     if (this.signals) this.signals.visible = this.showSignals && zoom >= SIGNAL_MIN_ZOOM && modelOpacity(zoom) < 1;
     if (!this.count && !this.signals?.visible) return;
     // Dots fade out as the 3D car models fade in (same zoom as the buses).
-    this.material.uniforms.opacity.value = 1 - modelOpacity(zoom);
+    this.material.uniforms.opacity.value = (1 - modelOpacity(zoom)) * this.focus;
+    this.signalMaterial.uniforms.focus.value = this.signalFocus;
     if (this.points) this.points.visible = this.count > 0 && this.material.uniforms.opacity.value > 0;
     this.material.uniforms.size.value = Math.min(9, Math.max(3, 3 + (zoom - 10) * .8)) * devicePixelRatio;
     this.camera.projectionMatrix.fromArray(args.defaultProjectionData.mainMatrix).multiply(this.originMatrix);
@@ -172,7 +190,8 @@ export function createSimulatedCars(map, toggle, signalToggle) {
   const $ = id => document.getElementById(id);
   const info = $('car-info'), connection = $('sim-connection'), progressLine = $('sim-progress');
   const slider = $('sim-population'), sliderValue = $('sim-population-value'), pauseButton = $('sim-pause'), reinitButton = $('sim-reinit');
-  const hotspotToggle = $('toggle-hotspots');
+  const hotspotToggle = $('toggle-hotspots'), personalityToggle = $('toggle-personality');
+  try { personalityToggle.checked = localStorage.getItem('london-map:personality') === 'on'; } catch { /* Default off. */ }
   try { hotspotToggle.checked = localStorage.getItem('london-map:hotspots') === 'on'; } catch { /* Optional persistence. */ }
   let lastHotspotAt = 0;
   const emptyHotspots = { type: 'FeatureCollection', features: [] };
@@ -193,7 +212,7 @@ export function createSimulatedCars(map, toggle, signalToggle) {
     addLayer();
   }).catch(() => {});
   let enabled = false, socket, retry = 1000, retryTimer, status = null, runId = null, snapshots = [], connected = false;
-  let signalsLoading = false, signalFrames = 0, impact = { type: 'FeatureCollection', features: [] }, closureKey = '';
+  let signalsLoading = false, signalFrames = 0, popup, impact = { type: 'FeatureCollection', features: [] }, closureKey = '';
   let renderTime = null, lastFrame = 0, lastDom = 0, lastSnapshotAt = 0, frames = 0, fpsSince = performance.now(), fps = 0, visible = 0, xy = new Float32Array(0), received = 0;
 
   // Closed roads (red dashed) and roads whose congestion changed because of closures (green freer, red slower).
@@ -214,20 +233,18 @@ export function createSimulatedCars(map, toggle, signalToggle) {
     }
   }
 
-  // Close-roads mode (top-right button): clicking a road closes the stretch between its junctions in
+  // Stop-road mode (top-right "Stop road" tool, switched by stop-tools.js): clicking a road closes the stretch between its junctions in
   // both directions; clicking a closed road reopens it. Applies to the one shared simulation.
   const closureButton = $('closure-mode'), closureNote = $('closure-note');
   let closing = false;
   function setClosing(on) {
     closing = on;
     closureButton.setAttribute('aria-pressed', String(on));
-    closureButton.textContent = on ? 'Done closing roads' : 'Close roads';
     map.getCanvas().classList.toggle('closing-roads', on);
     if (on && !toggle.checked) { toggle.checked = true; update(); } // closures and their impact draw with the cars
     closureNote.textContent = on ? 'Click a road to close it. Click a red dashed road to reopen it.' : '';
     updateClosurePanel();
   }
-  closureButton.addEventListener('click', () => setClosing(!closing));
 
   async function onRoadClick(event) {
     if (!status?.runId) { closureNote.textContent = 'The simulation is still starting.'; return; }
@@ -368,6 +385,7 @@ export function createSimulatedCars(map, toggle, signalToggle) {
       if (xy.length < next.count * 2) xy = new Float32Array(next.count * 2);
       const count = interpolate(previous, next, renderTime, xy);
       layer.setPositions(xy, count);
+      if (personalityToggle.checked && status?.seed !== undefined) layer.setColours(next.ids, count, status.seed);
       const b = map.getBounds(), [west, south] = layer.toLayer(b.getWest(), b.getSouth()), [east, north] = layer.toLayer(b.getEast(), b.getNorth());
       visible = 0;
       for (let i = 0; i < count; i++) if (xy[2 * i] >= west && xy[2 * i] <= east && xy[2 * i + 1] >= south && xy[2 * i + 1] <= north) visible++;
@@ -401,6 +419,8 @@ export function createSimulatedCars(map, toggle, signalToggle) {
       const label = ({ live: 'Live TomTom', stale: 'Stale TomTom', fallback: 'Fallback (no live data)' })[observation.status];
       $('sim-data').textContent = `${label}${age == null ? '' : ` · observed ${age} min before start`} · ${(observation.matchedShare * 100).toFixed(0)}% roads matched, rest inferred`;
     } else $('sim-data').textContent = '—';
+    const mix = status?.personalities;
+    $('sim-personalities').textContent = mix ? PERSONALITIES.map(p => `${mix[p].toLocaleString()} ${p}`).join(' · ') : '—';
     $('sim-health').textContent = perf ? `${perf.realtimeFactor}× real time · step ${perf.stepMs} ms · ${health.gridlocked} gridlocked · ${fps.toFixed(0)} FPS${perf.realtimeFactor < 1 ? ' · degraded' : ''}` : `${fps.toFixed(0)} FPS`;
     updateClosurePanel();
     const job = status?.job;
@@ -449,6 +469,39 @@ export function createSimulatedCars(map, toggle, signalToggle) {
   });
   $('hotspot-detail').hidden = !hotspotToggle.checked;
   toggle.addEventListener('change', update);
+  const applyTint = () => { layer.tint = personalityToggle.checked ? 1 : 0; if (layer.material) layer.material.uniforms.tint.value = layer.tint; layer.colouredFor = null; map.triggerRepaint(); };
+  personalityToggle.addEventListener('change', () => {
+    try { localStorage.setItem('london-map:personality', personalityToggle.checked ? 'on' : 'off'); } catch { /* Optional persistence. */ }
+    applyTint();
+  });
+  applyTint();
+
+  // Click on a car dot: its id, personality and speed.
+  function carPopup(event) {
+    const snapshot = snapshots.at(-1);
+    if (!enabled || !snapshot || status?.seed === undefined) return false;
+    const { x, y } = event.point, a = map.unproject([x - 10, y - 10]), b = map.unproject([x + 10, y + 10]);
+    const west = Math.min(a.lng, b.lng), east = Math.max(a.lng, b.lng), south = Math.min(a.lat, b.lat), north = Math.max(a.lat, b.lat);
+    let best = -1, bestD = 10;
+    for (let i = 0; i < snapshot.count; i++) {
+      const lon = snapshot.lon[i] / 1e7, lat = snapshot.lat[i] / 1e7;
+      if (lon < west || lon > east || lat < south || lat > north) continue;
+      const p = map.project([lon, lat]), d = Math.hypot(p.x - x, p.y - y);
+      if (d < bestD) { bestD = d; best = i; }
+    }
+    if (best < 0) return false;
+    const id = snapshot.ids[best], kind = PERSONALITIES[personalityOf(status.seed, id)];
+    const content = document.createElement('div');
+    content.className = 'bus-popup';
+    const title = document.createElement('strong'), line = document.createElement('div'), note = document.createElement('small');
+    title.textContent = `Simulated car ${id}`;
+    line.textContent = `${kind[0].toUpperCase()}${kind.slice(1)} driver · ${Math.round(snapshot.speed[best] / 100 * 3.6)} km/h`;
+    note.textContent = 'Simulated estimate, not a real vehicle';
+    content.append(title, line, note);
+    popup?.remove();
+    popup = new maplibregl.Popup().setLngLat([snapshot.lon[best] / 1e7, snapshot.lat[best] / 1e7]).setDOMContent(content).addTo(map);
+    return true;
+  }
   signalToggle.addEventListener('change', () => { sendViewport(); map.triggerRepaint(); });
   map.on('moveend', sendViewport);
   map.on('style.load', addLayer);
@@ -460,6 +513,6 @@ export function createSimulatedCars(map, toggle, signalToggle) {
     get enabled() { return enabled; }, get runId() { return runId; }, get status() { return status; },
     get visibleCount() { return visible; }, get renderedCount() { return layer.count; }, get fps() { return fps; },
     get snapshotsReceived() { return received; }, get signalFrames() { return signalFrames; }, get connected() { return connected; },
-    positions: () => Array.from(xy.subarray(0, layer.count * 2)), latest: () => snapshots.at(-1), onRoadClick, closing: () => closing,
+    positions: () => Array.from(xy.subarray(0, layer.count * 2)), latest: () => snapshots.at(-1), onRoadClick, closing: () => closing, setClosing, carPopup,
   };
 }

@@ -5,6 +5,7 @@ import { createTraffic } from '/traffic.js';
 import { createSimulatedCars } from '/sim-cars.js';
 import { createCameras } from '/cameras.js';
 import { addShapeIcon, createTrains } from '/trains.js';
+import { createStopTools } from '/stop-tools.js';
 
 const interfaceUI = createInterface();
 
@@ -68,7 +69,7 @@ map.on('zoom', () => {
 map.on('move', () => { dirty = true; });
 
 function updateBusVisibility() {
-  for (const id of ['live-bus-dots', 'live-bus-hit', 'bus-stops', 'bus-stops-osm']) {
+  for (const id of ['live-bus-dots', 'live-bus-hit', 'bus-stops', 'bus-stops-osm', 'bus-stopped-glow', 'bus-stopped-x']) {
     if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', busesEnabled ? 'visible' : 'none');
   }
   busInfo.hidden = !busesEnabled;
@@ -136,6 +137,12 @@ map.on('load', async () => {
     id: 'live-bus-dots', type: 'symbol', source: 'live-buses', // red squares from afar
     layout: { 'icon-image': 'bus-square', 'icon-size': ['interpolate', ['linear'], ['zoom'], 10, .45, 16, .7], 'icon-allow-overlap': true, 'icon-ignore-placement': true },
   });
+  // Stopped buses: pulsing red glow (animated by stop-tools.js) and a red X.
+  addShapeIcon(map, 'stopped-x', 'x', '#d0021b');
+  map.addLayer({ id: 'bus-stopped-glow', type: 'circle', source: 'live-buses', filter: ['==', ['get', 'stopped'], true],
+    paint: { 'circle-color': '#ff1a1a', 'circle-radius': 14, 'circle-blur': .7, 'circle-opacity': .6 } }, 'live-bus-dots');
+  map.addLayer({ id: 'bus-stopped-x', type: 'symbol', source: 'live-buses', filter: ['==', ['get', 'stopped'], true],
+    layout: { 'icon-image': 'stopped-x', 'icon-size': ['interpolate', ['linear'], ['zoom'], 10, .8, 16, 1.2], 'icon-allow-overlap': true, 'icon-ignore-placement': true } });
   map.addLayer({
     id: 'live-bus-hit', type: 'circle', source: 'live-buses',
     paint: { 'circle-radius': ['interpolate', ['linear'], ['zoom'], 16, 9, 18, 24, 20, 80], 'circle-opacity': 0, 'circle-pitch-alignment': 'viewport' },
@@ -151,7 +158,8 @@ map.on('load', async () => {
   layers.traffic = createTraffic(map, overlayToggles[0]);
   layers.cars = createSimulatedCars(map, overlayToggles[1], document.getElementById('toggle-signals'));
   layers.cameras = createCameras(map, overlayToggles[2], document.querySelector('.panel'));
-  layers.trains = createTrains(map, document.querySelector('#toggle-trains'), document.querySelector('#toggle-train-lines'), document.querySelector('#train-status'));
+  layers.trains = createTrains(map, document.querySelector('#toggle-trains'), document.querySelector('#toggle-train-lines'), document.querySelector('#train-status'), document.querySelector('#toggle-train-busyness'));
+  layers.stopTools = createStopTools(map, layers, { busAt });
   updateBusVisibility();
   dirty = true;
   void poll();
@@ -255,10 +263,11 @@ function updatePopup(content, bus) {
 }
 
 map.on('click', event => {
+  if (layers.stopTools?.tool && layers.stopTools.tool !== 'road') { void layers.stopTools.click(event); return; }
   if (layers.cars?.closing()) { layers.cars.onRoadClick(event); return; }
   if (map.getLayer('cctv-dots') && map.queryRenderedFeatures(event.point, { layers: ['cctv-dots'] }).length) return;
   if (layers.trains?.click(event)) return;
-  if (!busesEnabled) return;
+  if (!busesEnabled) { layers.cars?.carPopup(event); return; }
   const bus = busAt(event.point);
   popup?.remove();
   selectedBus = bus?.id ?? null;
@@ -283,6 +292,7 @@ map.on('click', event => {
     const layers = ['bus-stops', 'bus-stops-osm'].filter(id => map.getLayer(id));
     const stop = layers.length ? map.queryRenderedFeatures(event.point, { layers })[0] : null;
     if (stop) popup = new maplibregl.Popup().setLngLat(stop.geometry.coordinates).setText(stop.properties.name || 'Bus stop').addTo(map);
+    else layers.cars?.carPopup(event);
   }
 });
 map.on('mousemove', event => { map.getCanvas().style.cursor = busAt(event.point) ? 'pointer' : ''; });
