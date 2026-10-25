@@ -21,13 +21,30 @@
       <input id="toggle-buses" type="checkbox" role="switch" aria-controls="bus-info" checked>
     </label>
     <label class="layer-toggle" id="traffic-toggle"><span>Traffic flow</span><input id="toggle-traffic" type="checkbox" role="switch"></label>
-    <label class="layer-toggle" id="vehicles-toggle"><span>Estimated cars</span><input id="toggle-cars" type="checkbox" role="switch" aria-controls="car-info"></label>
+    <label class="layer-toggle" id="vehicles-toggle"><span>Simulated cars</span><input id="toggle-cars" type="checkbox" role="switch" aria-controls="car-info"></label>
     <label class="layer-toggle" id="cctv-toggle"><span>Live cameras</span><input id="toggle-cameras" type="checkbox" role="switch" aria-controls="camera-status"></label>
     <p id="camera-status" class="detail" hidden>Loading traffic cameras…</p>
     <section id="car-info" class="overlay-info" hidden>
-      <p id="car-summary" class="count">Loading traffic estimates…</p>
-      <p class="detail"><i class="dot car"></i> Up to 300 illustrative dots · estimated traffic, not GPS tracking.</p>
-      <details><summary>Estimate details</summary><p id="car-details" class="detail"></p></details>
+      <p id="sim-connection" class="status" data-status="loading" role="status" aria-live="polite">Connecting to simulation</p>
+      <dl class="metrics">
+        <dt>Cars, all London</dt><dd id="sim-global">—</dd>
+        <dt>Visible now</dt><dd id="sim-visible">—</dd>
+        <dt>Average speed</dt><dd id="sim-speed">—</dd>
+        <dt>Simulation time</dt><dd id="sim-time">—</dd>
+        <dt>Traffic data</dt><dd id="sim-data">—</dd>
+        <dt>Health</dt><dd id="sim-health">—</dd>
+      </dl>
+      <div class="sim-controls">
+        <button id="sim-pause" type="button" disabled>Pause</button>
+        <button id="sim-reinit" type="button" disabled>Re-initialize with live data</button>
+      </div>
+      <label class="sim-population" for="sim-population">Cars at next re-initialization: <output id="sim-population-value" for="sim-population">5,000</output></label>
+      <input id="sim-population" type="range" min="5000" max="200000" step="500" value="5000">
+      <p id="sim-progress" class="detail" role="status" aria-live="polite"></p>
+      <label class="layer-toggle"><span>Traffic lights</span><input id="toggle-signals" type="checkbox" role="switch" checked></label>
+      <div class="legend"><span><i class="dot signal-red"></i><i class="dot signal-amber"></i><i class="dot signal-green"></i> Traffic lights: simulated signals (zoom in to see)</span></div>
+      <p class="detail"><i class="dot car"></i> Simulated car positions are seeded from live TomTom traffic observations and then evolve independently. They are estimates, not live tracking of individual vehicles.</p>
+      <details><summary>About this simulation</summary><p class="detail">Pause and re-initialize apply to everyone viewing this server. The car count is a modelling choice, not a measured London count. Traffic light locations come from OpenStreetMap (© OpenStreetMap contributors); their timing is simulated (fixed 90 s cycles), because live signal states are not available. There are no turn restrictions, and junctions without signals behave as simple merges. Changing the slider only affects the next re-initialization, which moves the same cars to positions weighted by live TomTom traffic.</p></details>
     </section>
     <div id="bus-info" class="overlay-info">
     <div id="feed-status" class="status" data-status="loading" role="status" aria-live="polite">Connecting to live buses</div>

@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Deterministic test network near Charing Cross. One feature per rule:
+     two-way 30 mph primary with a signalled junction (2), inferred-speed residential, a one-way,
+     a no_left_turn restriction, a bridge crossing without a junction, and three excluded ways. -->
+<osm version="0.6" generator="hand">
+  <node id="1" version="1" lat="51.5070" lon="-0.1300"/>
+  <node id="2" version="1" lat="51.5070" lon="-0.1280"><tag k="highway" v="traffic_signals"/></node>
+  <node id="3" version="1" lat="51.5070" lon="-0.1260"/>
+  <node id="4" version="1" lat="51.5090" lon="-0.1280"/>
+  <node id="5" version="1" lat="51.5050" lon="-0.1280"/>
+  <node id="6" version="1" lat="51.5090" lon="-0.1300"/>
+  <node id="7" version="1" lat="51.5090" lon="-0.1260"/>
+  <node id="8" version="1" lat="51.5050" lon="-0.1300"/>
+  <node id="9" version="1" lat="51.5050" lon="-0.1260"/>
+  <node id="22" version="1" lat="51.5080" lon="-0.1290"/>
+  <node id="23" version="1" lat="51.5060" lon="-0.1290"/>
+  <node id="30" version="1" lat="51.5080" lon="-0.1270"/>
+  <node id="31" version="1" lat="51.5060" lon="-0.1270"/>
+  <node id="32" version="1" lat="51.5100" lon="-0.1250"/>
+  <node id="33" version="1" lat="51.5040" lon="-0.1250"/>
+  <way id="101" version="1"><nd ref="1"/><nd ref="2"/>
+    <tag k="highway" v="primary"/><tag k="name" v="High Street West"/><tag k="lanes" v="2"/><tag k="maxspeed" v="30 mph"/></way>
+  <way id="102" version="1"><nd ref="2"/><nd ref="3"/>
+    <tag k="highway" v="primary"/><tag k="name" v="High Street East"/><tag k="lanes" v="2"/><tag k="maxspeed" v="30 mph"/></way>
+  <way id="111" version="1"><nd ref="2"/><nd ref="4"/><tag k="highway" v="residential"/><tag k="name" v="North Road"/></way>
+  <way id="112" version="1"><nd ref="5"/><nd ref="2"/><tag k="highway" v="secondary"/><tag k="oneway" v="yes"/><tag k="name" v="One Way Lane"/></way>
+  <way id="113" version="1"><nd ref="1"/><nd ref="6"/><nd ref="4"/><nd ref="7"/><nd ref="3"/><tag k="highway" v="residential"/><tag k="name" v="North Loop"/></way>
+  <way id="114" version="1"><nd ref="3"/><nd ref="9"/><nd ref="5"/><nd ref="8"/><nd ref="1"/><tag k="highway" v="tertiary"/><tag k="name" v="South Loop"/></way>
+  <way id="115" version="1"><nd ref="6"/><nd ref="22"/><nd ref="23"/><nd ref="8"/>
+    <tag k="highway" v="trunk"/><tag k="name" v="Flyover"/><tag k="bridge" v="yes"/><tag k="layer" v="1"/><tag k="maxspeed" v="40 mph"/></way>
+  <way id="116" version="1"><nd ref="30"/><nd ref="31"/><tag k="highway" v="footway"/></way>
+  <way id="117" version="1"><nd ref="7"/><nd ref="32"/><tag k="highway" v="service"/><tag k="access" v="private"/></way>
+  <way id="118" version="1"><nd ref="9"/><nd ref="33"/><tag k="highway" v="unclassified"/><tag k="motor_vehicle" v="no"/></way>
+  <relation id="900" version="1">
+    <member type="way" ref="101" role="from"/><member type="node" ref="2" role="via"/><member type="way" ref="111" role="to"/>
+    <tag k="type" v="restriction"/><tag k="restriction" v="no_left_turn"/></relation>
+</osm>

@@ -1,6 +1,6 @@
 # London live buses
 
-Live TfL bus GPS positions, estimated car traffic, traffic flow colours and JamCam snapshots on one London map. Zoomed-out buses are red dots; between zoom 16 and 17 they crossfade into small 3D double-deckers, while the map tilts gradually to 40 degrees. Grey dots are bus stops. Click a bus to see its route, destination, vehicle and GPS recording time.
+Live TfL bus GPS positions, a persistent simulated car traffic layer for central London, traffic flow colours and JamCam snapshots on one London map. Zoomed-out buses are red dots; between zoom 16 and 17 they crossfade into small 3D double-deckers, while the map tilts gradually to 40 degrees. Grey dots are bus stops. Click a bus to see its route, destination, vehicle and GPS recording time.
 
 ## Run locally
 
@@ -16,11 +16,13 @@ The supplied [Bus Open Data Service](https://data.bus-data.dft.gov.uk/) key is i
 npm start
 ```
 
+For the simulated cars, build the road network once first (see [Simulated cars](#simulated-cars)); without it the map still runs and the car panel says what is missing.
+
 Open **http://localhost:3000**. Set `PORT` in `.env` if needed. The app is served by Node; opening `index.html` directly or using a static-only server will not provide the live API. The start command honours existing HTTP/HTTPS proxy environment variables.
 
 ## Map layers
 
-Use the **Live TfL buses** switch in the map panel to show or hide the bus overlay. It starts enabled and remembers your selection in this browser. Turning it off hides the dots, 3D buses, stop markers and bus information, closes bus popups, pauses bus requests, and restores a flat map. Turning it on immediately loads fresh positions and restores the zoom-dependent bus models and tilt. The basemap remains available throughout. **Traffic flow**, **Estimated cars**, and **Live cameras** are independent switches, initially off. All four choices are remembered. Estimated cars remain available when buses are hidden; cars and cameras keep the main map’s bus-controlled 0–40° tilt.
+Use the **Live TfL buses** switch in the map panel to show or hide the bus overlay. It starts enabled and remembers your selection in this browser. Turning it off hides the dots, 3D buses, stop markers and bus information, closes bus popups, pauses bus requests, and restores a flat map. Turning it on immediately loads fresh positions and restores the zoom-dependent bus models and tilt. The basemap remains available throughout. **Traffic flow**, **Simulated cars**, and **Live cameras** are independent switches, initially off. All four choices are remembered. Simulated cars remain available when buses are hidden; cars and cameras keep the main map’s bus-controlled 0–40° tilt.
 
 ## API keys and configuration
 
@@ -30,7 +32,7 @@ The shared project keys are included below as requested. The BODS key is also in
 | --- | --- | --- |
 | DfT Bus Open Data Service (BODS) | `e5f1a3ff2cedd7e7cdd90c9eb38c58741a0b9ea3` | Live TfL bus GPS positions; used by the Node server. |
 | MapTiler | `Piqlzte12zD4i2H9jha1` | Streets, buildings, road labels and basemap tiles in the browser. |
-| TomTom Traffic | `CPnPmYj0K9TjSsJsQ7cQp3NJ6vjm0c8C` | Browser traffic tiles and sampled current/free-flow speeds. |
+| TomTom Traffic | `CPnPmYj0K9TjSsJsQ7cQp3NJ6vjm0c8C` | Browser traffic raster tiles; server-side vector flow tiles that seed the car simulation. |
 | TfL Unified API | `f8f5ffa16163428b8f2ceaa86afdb967` | Optional key for higher request limits; stop and JamCam requests currently work anonymously. |
 | OpenStreetMap / Overpass | No key | Fallback display of bus-stop markers. |
 
@@ -49,7 +51,7 @@ To replace a key, edit `BODS_API_KEY` in `.env` or `MAPTILER_KEY` in `public/app
 | GPS freshness | Dim after 60 seconds; remove after three minutes without a fresh fix. |
 | Zoom | Red dots below zoom 16; crossfade to 3D at 16–17; 40° tilt at zoom 17+. |
 | Local cache | `.cache/tfl-stops.json`; generated data is excluded from Git. |
-| Tests | `npm test`; `npx playwright install chromium --only-shell`; `npm run test:browser`. |
+| Tests | `npm test`; `npm run test:sim`; `npx playwright install chromium --only-shell`; `npm run test:browser`; `npm run test:overlays`. |
 | Live browser check | With the server running: `LIVE_URL=http://localhost:3000 npm run test:browser`. |
 
 Initial route-stop loading can take about a minute. During loading, buses continue to use confirmed GPS positions and the panel reports stop-catalog progress. Normal movement trails the source by roughly one update; it never predicts beyond the latest confirmed fix.
@@ -69,28 +71,99 @@ Initial route-stop loading can take about a minute. During loading, buses contin
 
 The GPS feed and route-specific stop catalog are handled by the server. The BODS key never appears in API responses or frontend assets. The map retains its existing public MapTiler browser key. The local server binds to loopback. Deployment needs a Node-capable host; publishing only static files will not run the feed.
 
-## Estimated traffic and cameras
+## Simulated cars
 
-The black moving dots represent **estimated road traffic**, not GPS-tracked cars. They appear at all map zooms, including the London overview, using road geometry available in the basemap at that zoom. At overview zooms this primarily covers major roads. The estimated count is shown separately from the **maximum 300 illustrative dots**; dots are not a one-to-one count of actual cars. Real buses always come from the existing BODS implementation; the cars branch’s synthetic buses and 3D car boxes were removed.
+> Simulated car positions are seeded from live TomTom traffic observations and then evolve independently. They are estimates, not live tracking of individual vehicles.
 
-The estimator retains the cars branch’s method:
+The black dots come from one server-owned, agent-based simulation of all of Greater London, running on a worker thread inside `npm start`. Every tab, reload and visitor joins the same run; panning, zooming or toggling layers never creates, moves or removes cars. Stopping the server stops the simulation.
 
-1. Sample TomTom Flow Segment Data at the viewport centre and up to eight spread-out major-road points. A nearest sample within 300 m sets each road’s speed; other roads use the view average.
-2. Estimate density with `120 * (1 - currentSpeed / freeFlowSpeed)` vehicles per lane per kilometre, multiplied by mapped road length and assumed lane count (motorway/trunk 3, primary 2, others 1).
-3. Cross-check with `flow_table.json`: predicted flow divided by speed; when the densities differ by more than 2×, use the lower density. Lookups use London weekday/hour. Invalid or missing speeds are excluded; zero speed keeps dots stationary.
+### Setup (one time)
 
-Speed samples are cached for three minutes. The application applies guards of **9 speed-data requests per minute and 2,000 per day**; these are application limits, not a guarantee about the provider’s account quota. Cached speeds can be shown when limits or upstream errors prevent refreshing. Traffic raster tiles refresh every two minutes. Turning an overlay off stops its polling/animation independently of the others.
-
-`train.py` and the provided calibration table come from the cars branch. The stored model uses 30 WebTRIS sites, 78,308 rows from 15 March–11 April 2026, holdout MAE 139.2 veh/h/lane and R² 0.702. These are historical motorway/major-road calibration metrics, not validation of individual urban vehicle locations. Running the map does not require retraining or Python packages.
-
-Optional retraining:
+The simulation itself is plain Node. Building the road network needs Python 3.12 with `osmium` (pinned in `sim/requirements.txt`):
 
 ```sh
-pip install scikit-learn numpy
-python train.py
+# Windows
+py -3.12 -m venv .venv
+.venv\Scripts\python -m pip install -r sim/requirements.txt
+# macOS (Apple Silicon) / Linux
+python3.12 -m venv .venv
+.venv/bin/python -m pip install -r sim/requirements.txt
+
+npm run build-roads        # downloads the Geofabrik Greater London extract once, writes data/network/roads.json
 ```
 
-WebTRIS is unauthenticated at `https://webtris.nationalhighways.co.uk/api/v1.0`: `/sites` and `/reports/{start_date}/to/{end_date}/Daily?sites=<ID>&page=1&page_size=100` (dates `DDMMYYYY`). The script locates a recent historical training window and exports the table consumed by the map.
+`build_roads.py` keeps car-usable roads inside the configured box (`network.bbox` in `sim/config.json`, default `-0.52,51.28,0.34,51.7`, all of Greater London) and classes (motorway, trunk, primary, secondary, tertiary, their links, unclassified; residential and service roads are left out for now). It drops ways that forbid private cars (`access`, `vehicle`, `motor_vehicle`, `motorcar` = `no`, `private`, `delivery`, …), imports one-way direction (including roundabouts and motorways), lanes per direction (capped at 4), and `maxspeed` with mph converted. Roads without a limit get the class default from `speedDefaultsMph` and are flagged as inferred. Only the largest strongly connected part is kept, so no car can reach a dead end. It also reads `highway=traffic_signals` nodes from the same extract and snaps each to the nearest road junction (3+ connected roads) within 25 m; signals that match no junction (e.g. pedestrian-only crossings) are dropped. It prints counts, exclusions, signals and file size.
+
+Current build (all of Greater London): 5,227 signalised junctions, 107,634 directed road segments, 9,037 road-km (10,728 lane-km), `roads.json` 14.3 MB, about 26 s. Earlier zones 1–3 build: 2,638 signalised junctions (6,105 approaches), 47,235 directed road segments, 2,546 road-km (3,051 lane-km), 2.9% inferred limits, 2,515 disconnected segments dropped, `roads.json` 5.5 MB, about 30 s.
+
+```sh
+npm run build-roads -- --bbox=-0.15,51.49,-0.10,51.52     # a small test area
+npm run build-roads -- --classes +residential             # add a class
+npm run build-roads -- --input other.osm.pbf              # another extract
+```
+
+Rebuild after changing the area or classes, then restart `npm start`. Delete `data/osm/greater-london-latest.osm.pbf` to download a fresh extract.
+
+### Model
+
+- Cars follow the road polylines, offset to the left of the centre line by lane (UK driving).
+- Car-following is IDM per lane (4.5 m cars, 2 m minimum gap, 1.2 s headway, 1.5 m/s² acceleration, 2 m/s² comfortable braking), with a desired speed of the limit × a per-car factor (mean 1.0, σ 0.1, 0.8–1.2). Followers never move into the car ahead.
+- At the end of a road a car takes a weighted random legal successor (busier road classes preferred, U-turns a last resort) and enters it only when there is room in the chosen lane.
+- Cars change lane when the next lane offers clearly more room and the gaps ahead and behind are safe; at most one car moves into a lane per step, with a 3 s pause between a car's changes.
+- 0.2 s steps in real time, all state in typed arrays indexed by car ID. Car IDs never change, cars are never removed or respawned, and cars waiting over 120 s are reported as gridlocked.
+- **Simulated signals.** Traffic light locations come from OpenStreetMap (© OpenStreetMap contributors). Live signal states are not available, so timing is simulated: each signalised junction runs a fixed 90 s cycle with a seeded random offset. Its incoming roads are split into two phases by approach angle (roughly north–south vs east–west). Each phase gets 40 s green, 3 s amber and 2 s all-red. The 35 s green requested would leave the 90 s cycle 10 s short, so green was lengthened to fill it. State is computed from the simulation clock alone (`(t + offset) mod 90`); there are no per-signal timers. On red, and on amber when the car can stop at 3 m/s², the stop line 6 m before the junction acts as a stationary IDM leader. A car is never let into the junction on red, and the existing room check still applies on green.
+- Not modelled yet: congestion-scaled green times, turn restrictions, and conflicts at junctions without signals (these behave as simple merges).
+
+### Seeding from TomTom
+
+1. TomTom vector flow tiles (`relative` and `absolute`) are fetched server-side at zoom 12 for the network box (32 requests), 4 at a time, with a 400-request budget, backoff on 429/503 and a 10-minute cache in `data/observations/`. The key comes from `TOMTOM_KEY` or `public/config.js` and is never sent to the browser or logged.
+2. Flow lines are de-duplicated and matched to directed roads within 15 m and 45° of their direction. Closed roads get no cars.
+3. Each road's weight is `lane_km × (5 + 95 × (1 − r))`, with `r` = current/free-flow speed clamped to 0–1, so congested roads get more cars. Roads without an observation use the median of same-class observed roads within 1 km, then the class median, then `r = 0.9`.
+4. Cars are placed by weight at safe spacing (at least 7.5 m per car per lane) with exactly the requested count, and start at the observed speed, bounded by the limit and the gap ahead.
+
+The first run tries live data and falls back to a labelled **fallback** (`r = 0.9` everywhere) if TomTom is unreachable. Data older than 30 minutes is labelled **stale**. Neither is shown as live. After seeding, traffic evolves only through the simulation. Last measured: 58% of roads matched directly, the rest inferred.
+
+The car count is a modelling choice, not a measured count of London traffic.
+
+### Controls
+
+- **Pause / Play** pauses the one shared simulation for everyone.
+- **Cars at next re-initialization**: 5,000–200,000 in steps of 500 (default 5,000; above 15,000 is untested). Applies only to the next re-initialization.
+- **Traffic lights** (default on) shows simulated signal states as red/amber/green points at each approach's stop line, at zoom 15 and above, for signals in view only.
+- **Re-initialize with live data** fetches TomTom while the current run continues, then moves the same cars (IDs kept; added or removed above the new count) to new live-weighted positions in one step under a new run ID. Duplicate requests get `409`. If live data is unavailable or stale, the current run continues and the panel shows why.
+- The panel shows the global count separately from the visible count, simulation time, average speed, data freshness and matched share, real-time factor, step time, gridlocked cars and browser FPS.
+
+### Interfaces
+
+| Endpoint | Purpose |
+| --- | --- |
+| `GET /api/simulation/status` | Lifecycle, run ID, population, sim time, average speed, observation summary, seed, performance, health, re-initialization job. |
+| `POST /api/simulation/reinitialize` `{"population": 5000}` | `202` with the job; `400` invalid count; `409` already running; `503` no running simulation. Same-origin only. |
+| `POST /api/simulation/pause` `{"paused": true}` | Shared pause/resume. Same-origin only. |
+| `GET /api/simulation/signals` | Static stop-line positions of every signal approach, `{simulated: true, positions: [lon, lat, ...]}`. |
+| `GET /api/simulation/stream` (WebSocket) | JSON status/progress frames and 5 Hz binary snapshots, culled to each client's viewport plus a margin. Clients sending `signals: true` (zoom ≥ 15) also get 2 Hz `'SIG1'` frames. |
+
+Binary snapshot: 24-byte header (`'SNP1'`, run ID u32, sim time f64, count u32, flags u32), then columns sorted by car ID: ID u32, lon/lat i32 (1e-7°), edge×4+lane u32, position along the road f32, heading u16 (0.01°), speed u16 (cm/s). Signal frame: `'SIG1'`, run ID u32, count u32, 4 bytes reserved, then approach indices u32 and states u8 (0 green, 1 amber, 2 red), only for approaches inside the union of the boxes of clients that want signals. The browser draws instanced points in a Three.js MapLibre layer, interpolating ~400 ms behind the newest snapshot, holds the last state if snapshots stop, and re-adds the layer after a style change.
+
+### Measured performance
+
+This laptop: Intel Core Ultra 5 226V, Intel Arc 130V, Windows 11, Node 24.
+
+| | 5,000 cars | 15,000 cars |
+| --- | --- | --- |
+| Simulation step | 4 ms | 4–7 ms (12 ms with the browser also rendering) |
+| Snapshot encoding | 2 ms | 3 ms |
+| Real-time headroom | ~30× | ~12–19× |
+| Server memory (whole process) | ~330–390 MB | ~320 MB |
+| Browser (Chromium, GPU) | 60 FPS | 60 FPS at zoom 11.5 (all cars in view), 13 and 16 |
+| Live re-initialization | — | 1.5 s total; about 1 s pause in stepping while roads are matched |
+| Signals (2,638 junctions), step time without → with | 2.0 → 2.1 ms (+0–3%) | 6.8 → 6.9 ms (+0–3%); 7.3 ms live with the browser rendering, still 60 FPS |
+
+### Linux deployment
+
+Install Node 24 and Python 3.12, build the network once, then run `npm start` under a process manager — for example a systemd unit with `WorkingDirectory=` the checkout, `ExecStart=/usr/bin/npm start`, `Restart=on-failure`. SIGINT/SIGTERM stop the simulation worker cleanly. Allow about 0.5 GB of RAM. The server binds to 127.0.0.1; put a reverse proxy that forwards WebSocket upgrades in front of it for remote access.
+
+## Cameras
 
 Live cameras use `https://api.tfl.gov.uk/Place/Type/JamCam`. Green camera markers show up to eight nearby preview cards from zoom 13. Previews refresh every 15 seconds; clicking opens a draggable/resizable viewer refreshing every five seconds. Images are snapshots rather than a video stream. Turning cameras off closes the viewer and clears image timers. The map places cards around its controls and shows complete camera frames.
 
@@ -98,18 +171,19 @@ Live cameras use `https://api.tfl.gov.uk/Place/Type/JamCam`. Green camera marker
 
 ```sh
 npm test
+npm run test:sim          # road builder (Python)
 npx playwright install chromium --only-shell
 npm run test:browser
 npm run test:overlays
 ```
 
-Unit and HTTP tests cover XML parsing, freshness, caching, outage recovery, full-interval interpolation, no overshoot, stop jitter, confirmed departures, route ownership, night routes, headings, route changes, stop pagination and cache reuse. Traffic tests also cover viewport clipping, road deduplication, calibration dimensions, London time, the 300-car cap, zero speeds, request limits and cached error recovery. Browser tests use isolated map, speed and camera fixtures to check WebGL rendering, independent toggles, saved selections, paused requests, camera preview placement, viewer drag/resize, overview car movement, 8,000 bus dots and the 3D fallback. Screenshots are written to ignored `test-results/`. Set `LIVE_URL=http://localhost:3000` when running the bus browser checks to also verify the running authenticated live map.
+Unit and HTTP tests cover XML parsing, freshness, caching, outage recovery, full-interval interpolation, no overshoot, stop jitter, confirmed departures, route ownership, night routes, headings, route changes, stop pagination and cache reuse. Simulation tests cover exact seeding and capacity refusal, no lane overlaps over 10 simulated minutes, braking behind a stopped car, overtaking by lane change, positions on the road geometry, TomTom caching/budget/stale fallback, freshness labels, directional matching, inference and weights, the shared run across clients, shared pause, and re-initialization success, refusal and duplicate requests. Road-builder tests cover exclusions, one-way roads, mph limits and bridges. Browser tests use isolated map, speed and camera fixtures to check WebGL rendering, independent toggles, saved selections, paused requests, camera preview placement, viewer drag/resize, simulated cars (rendering after style reloads, smooth motion, shared pause, reload joining the same run), 8,000 bus dots and the 3D fallback. Screenshots are written to ignored `test-results/`. Set `LIVE_URL=http://localhost:3000` when running the bus browser checks to also verify the running authenticated live map.
 
 ## Data credits
 
 - Bus locations: TfL iBus via DfT Bus Open Data Service, [Open Government Licence v3.0](https://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/).
 - Route-to-stop memberships and JamCam snapshots: Transport for London Unified API.
-- Traffic flow and sampled speeds: TomTom.
-- Historical training counts and speeds: National Highways WebTRIS.
+- Traffic flow tiles and simulation seed observations: TomTom.
+- Road network: OpenStreetMap contributors via the Geofabrik Greater London extract (ODbL).
 - Basemap: MapTiler and OpenStreetMap contributors, as credited on the map.
 - Bus stops: OpenStreetMap contributors via map tiles and Overpass.

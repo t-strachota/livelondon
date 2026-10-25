@@ -1,0 +1,51 @@
+{
+  "network": {
+    "source": "https://download.geofabrik.de/europe/united-kingdom/england/greater-london-latest.osm.pbf",
+    "speedDefaultsMph": {
+      "motorway": 70,
+      "motorway_link": 70,
+      "trunk": 40,
+      "trunk_link": 40,
+      "primary": 30,
+      "primary_link": 30,
+      "secondary": 30,
+      "secondary_link": 30,
+      "tertiary": 20,
+      "tertiary_link": 20,
+      "unclassified": 20,
+      "residential": 20,
+      "living_street": 20,
+      "service": 10
+    },
+    "bbox": [-0.52, 51.28, 0.34, 51.7],
+    "classes": [
+      "motorway",
+      "motorway_link",
+      "trunk",
+      "trunk_link",
+      "primary",
+      "primary_link",
+      "secondary",
+      "secondary_link",
+      "tertiary",
+      "tertiary_link",
+      "unclassified"
+    ]
+  },
+  "simulation": {
+    "population": 5000,
+    "minPopulation": 5000,
+    "maxPopulation": 200000,
+    "populationStep": 500,
+    "stepSeconds": 0.2,
+    "seed": 2026,
+    "gridlockSeconds": 120
+  },
+  "observations": {
+    "zoom": 12,
+    "concurrency": 4,
+    "maxRequests": 400,
+    "cacheSeconds": 600,
+    "staleSeconds": 1800
+  }
+}

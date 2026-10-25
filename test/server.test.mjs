@@ -11,13 +11,12 @@ test('HTTP endpoint serves live data, keeps credentials private and restricts st
   const base = `http://127.0.0.1:${server.address().port}`;
   assert.equal((await fetch(`${base}/`)).status, 200);
   assert.equal((await fetch(`${base}/app.js`)).headers.get('content-type'), 'text/javascript; charset=utf-8');
-  for (const path of ['/vendor/maplibre-gl.mjs', '/vendor/maplibre-gl-worker.mjs', '/vendor/maplibre-gl-shared.mjs', '/vendor/three.module.js', '/vendor/BufferGeometryUtils.js', '/traffic.js', '/estimated-cars.js', '/cameras.js', '/config.js', '/lib/traffic.mjs', '/lib/traffic-simulation.mjs']) {
+  for (const path of ['/vendor/maplibre-gl.mjs', '/vendor/maplibre-gl-worker.mjs', '/vendor/maplibre-gl-shared.mjs', '/vendor/three.module.js', '/vendor/BufferGeometryUtils.js', '/traffic.js', '/sim-cars.js', '/cameras.js', '/config.js']) {
     const asset = await fetch(base + path);
     assert.equal(asset.status, 200, `${path} must be served`);
     assert.equal(asset.headers.get('content-type'), 'text/javascript; charset=utf-8');
     await asset.arrayBuffer();
   }
-  assert.equal((await fetch(`${base}/flow_table.json`)).status, 200);
   assert.equal((await fetch(`${base}/cameras.css`)).status, 200);
   const api = await fetch(`${base}/api/buses`);
   assert.equal(api.status, 200);

@@ -7,10 +7,29 @@ import { GeoJSONVT } from '@maplibre/geojson-vt';
 import { fromGeojsonVt } from '@maplibre/vt-pbf';
 import { createApp } from '../server.mjs';
 import { makeBuses } from './fixtures.mjs';
-import { metres } from '../lib/traffic.mjs';
+import { EventEmitter } from 'node:events';
 
 await mkdir('test-results', { recursive: true });
-const server = createApp({ feed: { getSnapshot: async () => ({ status: 'live', configured: true, fetchedAt: new Date().toISOString(), buses: makeBuses(300) }) } });
+// Stands in for the simulation supervisor: 200 cars driving east at 10 m/s, 5 snapshots a second.
+const simulation = Object.assign(new EventEmitter(), { paused: false, time: 0, snapshot: null });
+simulation.getStatus = () => ({ lifecycle: 'running', runId: 7, pausedForEveryone: simulation.paused, population: { target: 200, actual: 200, capacity: 9000 }, simTime: simulation.time,
+  averageSpeedMps: 10, observation: { status: 'fallback', observedAt: null, matchedShare: 0 }, performance: { stepMs: 1, encodeMs: 0, realtimeFactor: 50, secondsBehind: 0 }, health: { gridlocked: 0 }, job: { state: 'idle' } });
+simulation.setPaused = paused => { simulation.paused = paused; simulation.emit('status', simulation.getStatus()); return true; };
+const simTimer = setInterval(() => {
+  if (simulation.paused) return;
+  simulation.time += .2;
+  const n = 200, out = Buffer.alloc(24 + n * 24);
+  out.writeUInt32LE(0x31504E53, 0); out.writeUInt32LE(7, 4); out.writeDoubleLE(simulation.time, 8); out.writeUInt32LE(n, 16);
+  for (let i = 0; i < n; i++) {
+    out.writeUInt32LE(i, 24 + 4 * i);
+    out.writeInt32LE(Math.round((-.135 + (i % 20) * .0007 + simulation.time * 10 / 69_400) * 1e7), 24 + 4 * n + 4 * i);
+    out.writeInt32LE(Math.round((51.503 + Math.floor(i / 20) * .0008) * 1e7), 24 + 8 * n + 4 * i);
+    out.writeUInt16LE(1000, 24 + 22 * n + 2 * i);
+  }
+  simulation.snapshot = out;
+  simulation.emit('snapshot', out);
+}, 200);
+const server = createApp({ simulation, feed: { getSnapshot: async () => ({ status: 'live', configured: true, fetchedAt: new Date().toISOString(), buses: makeBuses(300) }) } });
 server.listen(0, '127.0.0.1');
 await once(server, 'listening');
 const base = `http://127.0.0.1:${server.address().port}`;
@@ -58,52 +77,63 @@ try {
   await page.waitForFunction(() => window.londonLayers?.cameras && window.londonBuses.buses.length === 300);
   assert.equal(calls.speeds, 0); assert.equal(calls.tiles, 0); assert.equal(calls.cameraList, 0);
 
-  // Cars work independently of buses, including the whole-London overview.
+  // Cars come only from the server's run: the browser draws what it is sent and never spawns its own.
   await page.locator('#toggle-buses').uncheck();
-  await page.evaluate(() => window.londonBuses.map.jumpTo({ zoom: 10 }));
+  await page.evaluate(() => window.londonBuses.map.jumpTo({ zoom: 13, center: [-.128, 51.507] }));
   await page.locator('#toggle-cars').check();
-  await page.waitForFunction(() => window.londonLayers.cars.count > 0);
-  assert.ok(await page.evaluate(() => window.londonLayers.cars.count <= 300));
-  assert.equal(await page.evaluate(() => window.londonBuses.map.getPaintProperty('estimated-cars', 'circle-color')), '#000000');
+  await page.waitForFunction(() => window.londonLayers.cars.renderedCount === 200);
+  assert.equal(await page.evaluate(() => window.londonLayers.cars.runId), 7);
   assert.equal(await page.evaluate(() => window.londonBuses.map.getPitch()), 0);
   assert.equal(await page.evaluate(() => window.londonBuses.buses.length), 0);
-  assert.ok(calls.speeds <= 9);
-  const positions = await page.evaluate(async () => (await window.londonBuses.map.getSource('estimated-cars').getData()).features.map(feature => feature.geometry.coordinates));
-  await page.waitForTimeout(500);
-  const moved = await page.evaluate(async () => (await window.londonBuses.map.getSource('estimated-cars').getData()).features.map(feature => feature.geometry.coordinates));
-  assert.notDeepEqual(positions, moved);
+  await page.waitForFunction(() => document.querySelector('#sim-global').textContent.startsWith('200'));
+  assert.match(await page.locator('#sim-data').textContent(), /Fallback/);
+  assert.match(await page.locator('#car-info').textContent(), /They are estimates, not live tracking of individual vehicles\./);
+  // Smooth motion between 5 Hz snapshots: positions change between consecutive animation frames.
+  const frameMoves = await page.evaluate(() => new Promise(resolve => {
+    const seen = [];
+    const sample = () => { seen.push(window.londonLayers.cars.positions()[0]); if (seen.length < 12) requestAnimationFrame(sample); else resolve(new Set(seen).size); };
+    requestAnimationFrame(sample);
+  }));
+  assert.ok(frameMoves > 6, `only ${frameMoves} distinct positions in 12 frames`);
 
-  // Hold road inputs constant for the persistence check. Vector tile geometry
-  // legitimately changes across zooms; this tests renderer/core lifecycle, not
-  // whether two zoom levels happen to expose identical road segments.
-  await page.evaluate(async () => {
-    const map = window.londonBuses.map;
-    window.originalRoadQuery = map.queryRenderedFeatures;
-    map.queryRenderedFeatures = () => [{
-      properties: { class: 'primary', oneway: 1 },
-      geometry: { type: 'LineString', coordinates: [[-.13, 51.507], [-.126, 51.507]] },
-    }];
-    await window.londonLayers.cars.refresh();
+  // Pan/zoom and a style reload keep the same run and cars; the global count is not the visible count.
+  await page.evaluate(() => { const { map } = window.londonBuses; map.jumpTo({ center: [-.127, 51.5072], zoom: 16.5 });
+    // A style change clears custom layers and sources; style.load must bring the car layer back.
+    for (const id of ['simulated-cars', 'cctv-label', 'cctv-dots', 'cctv-glow']) if (map.getLayer(id)) map.removeLayer(id);
+    map.removeSource('cctv');
+    map.fire('style.load');
   });
-  await page.waitForTimeout(200);
-  // The layer only draws sim snapshots: pan/zoom, a style reload and a traffic refresh keep the same vehicles moving on.
-  const vehicles = () => page.evaluate(async () => Object.fromEntries((await window.londonBuses.map.getSource('estimated-cars').getData()).features
-    .map(feature => [feature.properties.id, { position: feature.geometry.coordinates, speed: feature.properties.speed }])));
-  await page.evaluate(() => { window.testSim = window.londonLayers.cars.sim; });
-  const start = await vehicles(), startedAt = Date.now();
-  await page.evaluate(() => { const { map } = window.londonBuses; map.jumpTo({ center: [-.127, 51.5072], zoom: 15 }); map.fire('style.load'); });
-  await page.evaluate(() => window.londonLayers.cars.refresh());
   await page.waitForTimeout(800);
-  const end = await vehicles(), elapsed = (Date.now() - startedAt) / 1000;
-  assert.equal(await page.evaluate(() => window.londonLayers.cars.sim === window.testSim), true);
-  assert.ok(Object.keys(start).length > 0);
-  assert.deepEqual(Object.keys(end).sort(), Object.keys(start).sort());
-  for (const [id, { position, speed }] of Object.entries(start)) {
-    const distance = metres(position, end[id].position);
-    assert.ok(distance > 0 && distance <= speed * (elapsed + .2) + 5, `${id} moved ${distance.toFixed(1)} m in ${elapsed}s`);
-  }
-  await page.evaluate(() => { window.londonBuses.map.queryRenderedFeatures = window.originalRoadQuery; });
-  await page.screenshot({ path: 'test-results/cars-london-overview.png' });
+  assert.equal(await page.evaluate(() => window.londonLayers.cars.runId), 7);
+  assert.ok(await page.evaluate(() => window.londonBuses.map.getLayer('simulated-cars')));
+  // The re-added layer actually draws: dark car pixels on the canvas.
+  const darkPixels = await page.evaluate(() => {
+    const { map } = window.londonBuses, gl = map.painter.context.gl;
+    map.triggerRepaint();
+    return new Promise(resolve => map.once('render', () => {
+      const { width, height } = gl.canvas, pixels = new Uint8Array(width * height * 4);
+      gl.readPixels(0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+      let dark = 0;
+      for (let i = 0; i < pixels.length; i += 4) if (pixels[i] < 40 && pixels[i + 1] < 40 && pixels[i + 2] < 40 && pixels[i + 3] > 200) dark++;
+      resolve(dark);
+    }));
+  });
+  assert.ok(darkPixels > 50, `only ${darkPixels} dark pixels after the style reload`);
+  const visible = await page.evaluate(() => window.londonLayers.cars.visibleCount);
+  assert.ok(visible > 0 && visible < 200, `visible ${visible}`);
+  await page.waitForFunction(() => document.querySelector('#sim-visible').textContent !== '200');
+
+  // Pause is shared and holds positions; play resumes.
+  await page.locator('#sim-pause').click();
+  await page.waitForFunction(() => window.londonLayers.cars.status.pausedForEveryone);
+  await page.waitForTimeout(300);
+  const held = await page.evaluate(() => window.londonLayers.cars.positions().slice(0, 4));
+  await page.waitForTimeout(400);
+  assert.deepEqual(await page.evaluate(() => window.londonLayers.cars.positions().slice(0, 4)), held);
+  await page.locator('#sim-pause').click();
+  await page.waitForFunction(() => !window.londonLayers.cars.status.pausedForEveryone);
+  await page.screenshot({ path: 'test-results/cars-close.png' });
+  await page.evaluate(() => window.londonBuses.map.jumpTo({ zoom: 13, center: [-.128, 51.507] }));
 
   await page.locator('#toggle-traffic').check();
   await page.waitForFunction(() => window.londonBuses.map.getLayer('traffic'));
@@ -139,9 +169,8 @@ try {
   await page.locator('#toggle-buses').check();
   await page.locator('#toggle-traffic').check();
   await page.evaluate(() => window.londonBuses.map.jumpTo({ zoom: 17, center: [-.128, 51.507] }));
-  await page.waitForFunction(() => window.londonBuses.modelCount > 0 && window.londonLayers.cars.count > 0);
+  await page.waitForFunction(() => window.londonBuses.modelCount > 0 && window.londonLayers.cars.renderedCount > 0);
   assert.equal(await page.evaluate(() => window.londonBuses.map.getPitch()), 40);
-  assert.equal(await page.evaluate(() => window.londonBuses.map.getPaintProperty('estimated-cars', 'circle-color')), '#000000');
   await page.screenshot({ path: 'test-results/all-layers.png' });
 
   // Disabling cameras closes the viewer and stops snapshot refreshes.
@@ -155,17 +184,21 @@ try {
   await page.evaluate(() => { window.londonBuses.map.jumpTo({ zoom: 14 }); document.dispatchEvent(new Event('visibilitychange')); });
   await page.waitForTimeout(1000);
   assert.deepEqual(calls, paused);
-  assert.equal(await page.evaluate(async () => (await window.londonBuses.map.getSource('estimated-cars').getData()).features.length), 0);
+  assert.equal(await page.evaluate(() => window.londonLayers.cars.renderedCount), 0);
   await page.reload();
   await page.waitForFunction(() => window.londonLayers?.cameras);
+  // A reload joins the same server-owned run.
+  await page.locator('#toggle-cars').check();
+  await page.waitForFunction(() => window.londonLayers.cars.renderedCount === 200 && window.londonLayers.cars.runId === 7);
+  await page.locator('#toggle-cars').uncheck();
   for (const name of ['buses', 'cars', 'traffic', 'cameras']) assert.equal(await page.locator(`#toggle-${name}`).isChecked(), false);
   assert.deepEqual(calls, paused);
   await page.setViewportSize({ width: 390, height: 844 });
   await page.screenshot({ path: 'test-results/layers-mobile.png' });
   assert.deepEqual(errors, []);
-  console.log(JSON.stringify({ result: 'PASS: independent overlays', maxCars: 300, calls, screenshots: 'test-results/' }));
+  console.log(JSON.stringify({ result: 'PASS: independent overlays', calls, screenshots: 'test-results/' }));
 } catch (error) {
-  console.error(JSON.stringify({ errors, calls, state: page ? await page.evaluate(() => ({ carSummary: document.querySelector('#car-summary')?.textContent, layers: window.londonLayers ? Object.keys(window.londonLayers) : [] })).catch(() => null) : null }));
+  console.error(JSON.stringify({ errors, calls, state: page ? await page.evaluate(() => ({ carStatus: document.querySelector('#sim-connection')?.textContent, layers: window.londonLayers ? Object.keys(window.londonLayers) : [] })).catch(() => null) : null }));
   await page?.screenshot({ path: 'test-results/overlays-failure.png' }).catch(() => {});
   throw error;
-} finally { await browser?.close(); await new Promise(resolve => server.close(resolve)); }
+} finally { clearInterval(simTimer); await browser?.close(); await new Promise(resolve => server.close(resolve)); }

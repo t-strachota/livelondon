@@ -7,3 +7,4 @@ test-results/
 .cache/
 __pycache__/
 .venv/
+data/

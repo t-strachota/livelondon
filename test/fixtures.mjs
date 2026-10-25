@@ -17,3 +17,15 @@ export function makeBuses(count, now = Date.now()) {
     recordedAt: new Date(now).toISOString(),
   }));
 }
+
+// A 400 m × 400 m square of two-way roads (2 lanes each way on the south side) near Trafalgar Square.
+export function squareRoads() {
+  const corners = [[-.130, 51.505], [-.1242, 51.505], [-.1242, 51.5086], [-.130, 51.5086]];
+  const edges = [];
+  for (let k = 0; k < 4; k++) {
+    const a = corners[k], b = corners[(k + 1) % 4], mid = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2], lanes = k === 0 ? 2 : 1;
+    edges.push([k, (k + 1) % 4, 0, lanes, 13.4, 0, 1, 400, [...a, ...mid, ...b]]);
+    edges.push([(k + 1) % 4, k, 0, lanes, 13.4, 0, 1, 400, [...b, ...mid, ...a]]);
+  }
+  return { bbox: [-.131, 51.504, -.123, 51.51], classes: ['primary'], nodes: 4, edges };
+}

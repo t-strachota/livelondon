@@ -29,9 +29,25 @@ function makeBus() {
   });
 }
 
+// A 4.2 m car (shorter than the simulation's 4.5 m car length, so stopped queues never touch),
+// with windscreen, rear window and two side windows. Front at the origin, like the bus.
+export function makeCar() {
+  const body = [box([1.8, 4.2, .75], [0, -2.1, .55]), box([1.6, 2.2, .6], [0, -2.3, 1.22])];
+  const glass = [box([1.45, .04, .45], [0, -1.19, 1.22]), box([1.45, .04, .45], [0, -3.41, 1.22]),
+    box([.035, 1.9, .42], [-.81, -2.3, 1.24]), box([.035, 1.9, .42], [.81, -2.3, 1.24])];
+  const wheels = [];
+  for (const x of [-.85, .85]) for (const y of [-.8, -3.4]) wheels.push(new THREE.CylinderGeometry(.33, .33, .22, 10).rotateZ(Math.PI / 2).translate(x, y, .33));
+  return [[body, 0x1e1f22], [glass, 0x9cc4d8], [wheels, 0x101010]].map(([parts, color]) => {
+    const geometry = mergeGeometries(parts);
+    for (const part of parts) part.dispose();
+    return { geometry, material: new THREE.MeshLambertMaterial({ color, transparent: true }) };
+  });
+}
+
 export class BusLayer {
-  constructor(map, onFailure = () => {}) {
-    this.id = 'live-bus-models';
+  constructor(map, onFailure = () => {}, { id = 'live-bus-models', makeParts = makeBus } = {}) {
+    this.id = id;
+    this.makeParts = makeParts;
     this.type = 'custom';
     this.renderingMode = '3d';
     this.map = map;
@@ -49,7 +65,7 @@ export class BusLayer {
     const light = new THREE.DirectionalLight(0xffffff, 2.5);
     light.position.set(-50, 30, 100);
     this.scene.add(light);
-    this.parts = makeBus();
+    this.parts = this.makeParts();
     this.origin = maplibregl.MercatorCoordinate.fromLngLat([-0.128, 51.507]);
     this.unit = this.origin.meterInMercatorCoordinateUnits();
     this.originMatrix = new THREE.Matrix4().makeTranslation(this.origin.x, this.origin.y, 0)
@@ -97,6 +113,31 @@ export class BusLayer {
       mesh.material.depthWrite = this.opacity >= 1;
     }
     this.map.triggerRepaint();
+  }
+
+  // Simulated cars: xy in metres east/north of the same origin, heading in 0.01° units, culled to [w, s, e, n].
+  updateCars(xy, angle, count, [west, south, east, north]) {
+    if (this.failed || !this.renderer) return;
+    this.opacity = modelOpacity(this.map.getZoom());
+    let n = 0;
+    if (this.opacity > 0) {
+      this.ensureCapacity(count);
+      for (let i = 0; i < count; i++) {
+        const x = xy[2 * i], y = xy[2 * i + 1];
+        if (x < west || x > east || y < south || y > north) continue;
+        this.transform.position.set(x, y, .12);
+        this.transform.rotation.set(0, 0, -angle[i] / 100 * Math.PI / 180);
+        this.transform.updateMatrix();
+        for (const mesh of this.meshes) mesh.setMatrixAt(n, this.transform.matrix);
+        n++;
+      }
+    }
+    for (const mesh of this.meshes) {
+      mesh.count = n;
+      mesh.instanceMatrix.needsUpdate = true;
+      mesh.material.opacity = this.opacity;
+      mesh.material.depthWrite = this.opacity >= 1;
+    }
   }
 
   render(gl, args) {

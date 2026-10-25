@@ -5,7 +5,9 @@
   "type": "module",
   "scripts": {
     "start": "node --use-env-proxy --env-file-if-exists=.env server.mjs",
+    "build-roads": "node lib/run-python.mjs build_roads.py",
     "test": "node --test test/*.test.mjs",
+    "test:sim": "node lib/run-python.mjs -m unittest discover -s sim/tests -t . -v",
     "test:browser": "node test/browser.mjs",
     "test:overlays": "node test/overlays.mjs"
   },
@@ -13,9 +15,12 @@
     "node": ">=24.5"
   },
   "dependencies": {
+    "@mapbox/vector-tile": "3.0.0",
     "fast-xml-parser": "^5.11.2",
     "maplibre-gl": "6.15.0",
-    "three": "0.169.0"
+    "pbf": "5.1.2",
+    "three": "0.169.0",
+    "ws": "8.18.3"
   },
   "devDependencies": {
     "playwright": "1.56.1",

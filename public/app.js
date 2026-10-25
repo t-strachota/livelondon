@@ -1,8 +1,7 @@
 import * as maplibregl from '/vendor/maplibre-gl.mjs';
 import { BusMotionStore, pitchForZoom, toGeoJSON } from '/lib/motion.mjs';
 import { createTraffic } from '/traffic.js';
-import { createEstimatedCars } from '/estimated-cars.js';
-import { TrafficSimulation } from '/lib/traffic-simulation.mjs';
+import { createSimulatedCars } from '/sim-cars.js';
 import { createCameras } from '/cameras.js';
 
 maplibregl.setWorkerUrl('/vendor/maplibre-gl-worker.mjs');
@@ -58,7 +57,7 @@ map.addControl(new maplibregl.AttributionControl({
 }), 'bottom-right');
 
 map.on('zoom', () => {
-  const pitch = busesEnabled ? pitchForZoom(map.getZoom()) : 0;
+  const pitch = busesEnabled || layers.cars?.enabled ? pitchForZoom(map.getZoom()) : 0;
   if (Math.abs(map.getPitch() - pitch) > .01) map.setPitch(pitch);
 });
 map.on('move', () => { dirty = true; });
@@ -145,7 +144,7 @@ map.on('load', async () => {
     setDotOpacity();
   } catch { modelFailure(); }
   layers.traffic = createTraffic(map, overlayToggles[0]);
-  layers.cars = createEstimatedCars(map, overlayToggles[1], new TrafficSimulation({ seed: 2026 }));
+  layers.cars = createSimulatedCars(map, overlayToggles[1], document.getElementById('toggle-signals'));
   layers.cameras = createCameras(map, overlayToggles[2], document.querySelector('.panel'));
   updateBusVisibility();
   dirty = true;
