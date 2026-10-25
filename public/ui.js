@@ -48,11 +48,33 @@ export function createInterface() {
   setCollapsed(read('minimized', 'off') === 'on');
   minimize.addEventListener('click', () => setCollapsed(minimize.getAttribute('aria-expanded') === 'true'));
   theme.addEventListener('click', () => setTheme(root.dataset.theme !== 'dark'));
+  // Panel tabs (Controls / Performance): arrow keys move between them; the open tab is remembered.
+  const tabs = [...document.querySelectorAll('.panel-tabs [role=tab]')];
+  function showTab(name) {
+    for (const tab of tabs) {
+      const on = tab.dataset.tab === name;
+      tab.setAttribute('aria-selected', String(on));
+      tab.tabIndex = on ? 0 : -1;
+      document.getElementById(tab.getAttribute('aria-controls')).hidden = !on;
+    }
+    save('tab', name);
+  }
+  tabs.forEach((tab, k) => {
+    tab.addEventListener('click', () => showTab(tab.dataset.tab));
+    tab.addEventListener('keydown', event => {
+      const step = { ArrowRight: 1, ArrowLeft: -1 }[event.key];
+      if (!step) return;
+      const next = tabs[(k + step + tabs.length) % tabs.length];
+      showTab(next.dataset.tab);
+      next.focus();
+    });
+  });
+  showTab(tabs.some(tab => tab.dataset.tab === read('tab', 'controls')) ? read('tab', 'controls') : 'controls');
   const screen = document.getElementById('loading-screen'), message = document.getElementById('loading-message');
   const dismiss = () => { screen.classList.add('is-ready'); setTimeout(() => { screen.hidden = true; }, matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 450); };
   document.getElementById('loading-continue').addEventListener('click', dismiss);
   const timeout = setTimeout(() => { message.textContent = 'The map is taking a little longer. You can explore while it connects.'; }, 12000);
-  return { attach(next) {
+  return { showTab, attach(next) {
     map = next;
     map.on('load', () => { clearTimeout(timeout); requestAnimationFrame(paintMap); message.textContent = 'Map ready. Live feeds connect in the background.'; setTimeout(dismiss, 600); });
     map.on('style.load', () => { originals = new Map(); paintMap(); });

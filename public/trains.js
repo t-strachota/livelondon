@@ -1,5 +1,6 @@
 import * as maplibregl from '/vendor/maplibre-gl.mjs';
 import { modelOpacity } from '/lib/motion.mjs';
+import { frameInterval, modelFadeFor, settings as displaySettings } from '/performance-settings.js';
 
 // Live trains (Tube, Overground, Elizabeth line) at positions the server estimates from TfL arrival
 // predictions. Between polls each train runs on along its own line string at its estimated speed, never
@@ -59,7 +60,7 @@ export function createTrains(map, trainToggle, lineToggle, statusLine, busyToggl
     if (!map.getLayer('train-lines')) map.addLayer({ id: 'train-lines', type: 'line', source: 'train-lines', layout: { 'line-cap': 'round', 'line-join': 'round' },
       paint: { 'line-color': ['get', 'color'], 'line-width': ['interpolate', ['linear'], ['zoom'], 10, 1, 14, 2, 17, 3.5], 'line-opacity': ['case', ['get', 'underground'], .5, .85] } }, before);
     if (!map.getSource('trains')) map.addSource('trains', { type: 'geojson', data: empty });
-    const fade = value => surface ? ['interpolate', ['linear'], ['zoom'], 16, value, 17, 0] : value;
+    const fade = value => surface && displaySettings().get().models3d ? ['interpolate', ['linear'], ['zoom'], 16, value, 17, 0] : value;
     for (const [line, { color }] of info) addShapeIcon(map, `train-${line}`, 'diamond', color);
     if (!map.getLayer('train-dots')) map.addLayer({ id: 'train-dots', type: 'symbol', source: 'trains',
       layout: { 'icon-image': ['concat', 'train-', ['get', 'line']], 'icon-size': ['interpolate', ['linear'], ['zoom'], 10, .55, 16, .9], 'icon-allow-overlap': true, 'icon-ignore-placement': true } }, before);
@@ -168,9 +169,9 @@ export function createTrains(map, trainToggle, lineToggle, statusLine, busyToggl
     frameRequested = true;
     requestAnimationFrame(frame);
     const now = performance.now();
-    if (now - lastFrame < FRAME_MS || document.hidden) return;
+    if (now - lastFrame < Math.max(FRAME_MS, frameInterval(displaySettings().get())) || document.hidden) return;
     lastFrame = now;
-    const features = [], models = modelOpacity(map.getZoom()) > 0, above = [], below = [];
+    const features = [], models = modelFadeFor(modelOpacity, map.getZoom()) > 0, above = [], below = [];
     for (const state of states.values()) {
       const { train } = state, string = strings.get(`${train.line}:${train.string}`), line = info.get(train.line);
       const d = position(state, now), [lon, lat] = pointAt(string, d, train.dir);
@@ -288,6 +289,7 @@ export function createTrains(map, trainToggle, lineToggle, statusLine, busyToggl
   map.on('style.load', addLayers);
   void loadLines();
   updateStatus();
+  displaySettings().onChange(() => { if (map.getLayer('train-dots')) addLayers(); lastFrame = 0; });
   return { click, lineAt, setStoppedLines, lineName: line => info.get(line)?.name ?? line, get enabled() { return trainToggle.checked; }, get trains() { return [...states.values()].map(s => s.train); } };
 }
 

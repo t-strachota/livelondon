@@ -148,10 +148,63 @@ export function createStopTools(map, layers, { busAt }) {
     return true;
   }
 
+  // ---- Economic impact and closure history ------------------------------------------------------
+  const money = pounds => `£${Math.round(pounds).toLocaleString('en-GB')}`;
+  const clockTime = iso => new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  function showEconomics(e) {
+    $('economics').hidden = !e?.active;
+    if (!e?.active) return;
+    $('econ-total').textContent = money(e.total);
+    $('econ-rate').textContent = `about ${money(e.perHour)} per hour right now`;
+    $('econ-split').textContent = `Road delay ${money(e.roadCost)} (${e.delayVehicleHours.toLocaleString()} extra vehicle-hours) · displaced passengers ${money(e.servicesCost)} · since ${clockTime(e.startedAt)}`;
+  }
+
+  const history = $('history');
+  let historyCount = -1;
+  async function loadHistory() {
+    let value;
+    try { const response = await fetch('/api/history', { cache: 'no-store' }); if (!response.ok) return; value = await response.json(); } catch { return; }
+    const sessions = [...(value.current ? [{ ...value.current, running: true }] : []), ...value.sessions];
+    $('history-count').textContent = value.sessions.length ? `(${value.sessions.length})` : '';
+    const line = text => { const p = document.createElement('p'); p.className = 'detail'; p.textContent = text; return p; };
+    $('history-list').replaceChildren(...(sessions.length ? sessions : [null]).map(s => {
+      const li = document.createElement('li');
+      if (!s) { li.className = 'detail'; li.textContent = 'No closure sessions yet.'; return li; }
+      const details = document.createElement('details'), head = document.createElement('summary'), body = document.createElement('div');
+      const start = new Date(s.startedAt), minutes = Math.max(1, Math.round(((s.endedAt ? Date.parse(s.endedAt) : Date.now()) - start) / 60000));
+      head.textContent = `${start.toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' })}, ${clockTime(s.startedAt)}–${s.running ? 'now' : clockTime(s.endedAt)} · ${minutes} min · ${money(s.total)}`;
+      const closed = document.createElement('ul');
+      closed.replaceChildren(...s.closed.map(c => {
+        const item = document.createElement('li');
+        item.textContent = `${({ road: 'Road', line: 'Train line', route: 'Bus route', bus: 'Bus' })[c.kind] ?? 'Closed'}: ${c.label}`;
+        return item;
+      }));
+      body.append(closed,
+        line(`Road delay ${money(s.roadCost)} (${s.delayVehicleHours} vehicle-hours) · displaced passengers ${money(s.servicesCost)}`),
+        line(`Peak ${s.peakPeople.toLocaleString()} people displaced · ${s.peakExtraCars.toLocaleString()} extra cars`));
+      if (s.mostAffected?.length) body.append(line(`Most affected: ${s.mostAffected.slice(0, 3).map(t => `${t.name} (${t.slowerPercent}% slower)`).join(', ')}`));
+      if (s.running) body.append(line('Still running.'));
+      else if (s.note) body.append(line(s.note));
+      details.append(head, body);
+      li.append(details);
+      return li;
+    }));
+  }
+  history.addEventListener('toggle', () => { if (history.open) void loadHistory(); });
+
+  // The right-hand panel keeps the height it was dragged to.
+  const body = $('closure-body');
+  try { const h = Number(localStorage.getItem('london-map:closure-height')); if (h > 0) body.style.height = `${Math.min(h, innerHeight - 100)}px`; } catch { /* Optional. */ }
+  new ResizeObserver(() => {
+    if (body.style.height) try { localStorage.setItem('london-map:closure-height', String(Math.round(body.offsetHeight))); } catch { /* Optional. */ }
+  }).observe(body);
+
   // ---- Stopped list, effect panel, pulsing markers ---------------------------------------------
   function show(value) {
     summary = value;
     const items = value.items ?? [];
+    showEconomics(value.economics);
+    if (value.historyCount !== historyCount || value.economics?.active) { historyCount = value.historyCount; if (history.open) void loadHistory(); }
     layers.trains?.setStoppedLines(value.stoppedLines ?? []);
     $('stopped-panel').hidden = !items.length;
     $('stopped-list').replaceChildren(...items.map(item => {
@@ -171,7 +224,7 @@ export function createStopTools(map, layers, { busAt }) {
       return li;
     }));
     clearTimeout(refreshTimer);
-    refreshTimer = setTimeout(refresh, items.length ? 5000 : 30_000);
+    refreshTimer = setTimeout(refresh, items.length || value.closures || value.economics?.active ? 5000 : 10_000);
     if (items.length && !pulse) pulse = requestAnimationFrame(animate);
   }
 

@@ -95,3 +95,25 @@ test('one server-owned run streams the same cars to every client and pauses for 
   await until(() => frames.every(seen => seen.length >= 2));
   for (const seen of frames) assert.ok(seen.every(view => view.runId === second.runId && view.count === 80));
 });
+
+test('population for the next run: the time-of-day count by default, manual only when a valid slider value is accepted', () => {
+  const limits = { minPopulation: 50, maxPopulation: 100, populationStep: 10 };
+  const observe = () => new Promise(() => {}); // the fetch never finishes; only the accepted job matters here
+  const simulation = new SimulationSupervisor({ observe, limits });
+  assert.equal(simulation.getStatus().clock.mode, 'live');
+  // Refused requests never change who controls the count.
+  assert.throws(() => simulation.reinitialize({ population: 55 }), error => error.status === 400);
+  assert.throws(() => simulation.reinitialize({ population: 80 }), error => error.status === 503);
+  assert.equal(simulation.clock.mode, 'live');
+  // Running (a stand-in worker): no population means the clock's count; a slider value switches to manual.
+  Object.assign(simulation, { worker: { postMessage() {} }, lifecycle: 'running' });
+  assert.equal(simulation.reinitialize({}).population, simulation.clockTarget());
+  assert.equal(simulation.clock.mode, 'live');
+  simulation.job = { state: 'idle' };
+  assert.equal(simulation.reinitialize({ population: 80 }).population, 80);
+  assert.equal(simulation.clock.mode, 'manual');
+  simulation.setClock({ mode: 'live' });
+  assert.equal(simulation.getStatus().clock.mode, 'live');
+  // An explicitly configured population (SIM_POPULATION) is a manual count from the start.
+  assert.equal(new SimulationSupervisor({ population: 60, observe, limits }).clock.mode, 'manual');
+});

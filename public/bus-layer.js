@@ -2,6 +2,10 @@ import * as THREE from 'three';
 import * as maplibregl from '/vendor/maplibre-gl.mjs';
 import { mergeGeometries } from '/vendor/BufferGeometryUtils.js';
 import { modelOpacity } from '/lib/motion.mjs';
+import { modelFadeFor } from '/performance-settings.js';
+
+// 3D models fade in with zoom unless "3D vehicles" is off in the Performance tab (then 0: dots only).
+const fadeAt = zoom => modelFadeFor(modelOpacity, zoom);
 
 const box = (size, position) => new THREE.BoxGeometry(...size).translate(...position);
 
@@ -120,7 +124,7 @@ export class BusLayer {
 
   update(buses) {
     if (this.failed || !this.renderer) return;
-    this.opacity = modelOpacity(this.map.getZoom());
+    this.opacity = fadeAt(this.map.getZoom());
     const bounds = this.map.getBounds();
     const visible = this.opacity > 0 ? buses.filter(bus => bounds.contains([bus.longitude, bus.latitude])) : [];
     this.ensureCapacity(visible.length);
@@ -148,7 +152,7 @@ export class BusLayer {
   // Simulated cars: xy in metres east/north of the same origin, heading in 0.01° units, culled to [w, s, e, n].
   updateCars(xy, angle, count, [west, south, east, north]) {
     if (this.failed || !this.renderer) return;
-    this.opacity = modelOpacity(this.map.getZoom());
+    this.opacity = fadeAt(this.map.getZoom());
     let n = 0;
     if (this.opacity > 0) {
       this.ensureCapacity(count);
@@ -173,7 +177,7 @@ export class BusLayer {
   // Simulated signals: positions [x, y, z per approach] in layer metres, states 0-2 (255 = unknown).
   updateSignals(positions, states, count, [west, south, east, north]) {
     if (this.failed || !this.renderer) return;
-    this.opacity = count ? modelOpacity(this.map.getZoom()) : 0;
+    this.opacity = count ? fadeAt(this.map.getZoom()) : 0;
     let n = 0;
     if (this.opacity > 0) {
       this.ensureCapacity(count);

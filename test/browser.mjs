@@ -134,6 +134,46 @@ try {
   assert.equal(opacity[0], 'case');
   console.log('PASS: red-dot fallback when 3D is unavailable');
 
+  // Performance tab: keyboard tabs, presets, Custom, persistence, and no shared-simulation requests.
+  const perf = await context.newPage();
+  const simulationPosts = [];
+  perf.on('request', request => { if (request.method() === 'POST' && new URL(request.url()).pathname.startsWith('/api/simulation')) simulationPosts.push(request.url()); });
+  await perf.goto(base);
+  await perf.waitForFunction(() => window.londonBuses?.buses.length === 300 && window.londonBuses.modelsReady);
+  assert.equal(await perf.locator('#tab-performance').isVisible(), false);
+  await perf.locator('#tab-btn-controls').focus();
+  await perf.keyboard.press('ArrowRight');
+  assert.equal(await perf.locator('#tab-btn-performance').getAttribute('aria-selected'), 'true');
+  assert.equal(await perf.locator('#tab-performance').isVisible(), true);
+  assert.equal(await perf.locator('#tab-controls').isVisible(), false);
+  assert.equal(await perf.locator('input[name=perf-preset][value=high]').isChecked(), true, 'High is the default');
+  await perf.getByRole('radio', { name: /^Low/ }).check();
+  assert.equal(await perf.locator('#perf-models').isChecked(), false);
+  assert.equal(await perf.evaluate(() => window.londonBuses.map.getPixelRatio()), 1);
+  await perf.evaluate(() => window.londonBuses.map.jumpTo({ zoom: 18, center: [-.128, 51.507] }));
+  await perf.waitForTimeout(600);
+  assert.equal(await perf.evaluate(() => window.londonBuses.modelCount), 0, '2D only: no 3D buses');
+  assert.equal((await perf.evaluate(() => window.londonBuses.map.getPaintProperty('live-bus-dots', 'icon-opacity')))[0], 'case', 'dots stay visible up close');
+  await perf.locator('#perf-render-rate').selectOption('30');
+  assert.equal(await perf.locator('#perf-preset-custom').isVisible(), true);
+  assert.equal(await perf.locator('input[name=perf-preset][value=custom]').isChecked(), true);
+  await perf.reload();
+  await perf.waitForFunction(() => window.londonBuses?.modelsReady);
+  assert.equal(await perf.locator('#tab-performance').isVisible(), true, 'open tab is remembered');
+  assert.equal(await perf.locator('#perf-render-rate').inputValue(), '30');
+  assert.equal(await perf.locator('#perf-models').isChecked(), false);
+  await perf.locator('#perf-reset').click();
+  assert.equal(await perf.locator('input[name=perf-preset][value=high]').isChecked(), true);
+  await perf.evaluate(() => window.londonBuses.map.jumpTo({ zoom: 18, center: [-.128, 51.507] }));
+  await perf.waitForFunction(() => window.londonBuses.modelCount > 0);
+  await perf.locator('#perf-population-link').click();
+  assert.equal(await perf.locator('#tab-controls').isVisible(), true);
+  assert.equal(await perf.evaluate(() => document.activeElement.id), 'sim-population');
+  assert.deepEqual(simulationPosts, [], 'local settings never post to the shared simulation');
+  assert.deepEqual(errors, []);
+  await perf.close();
+  console.log('PASS: Performance tab presets, Custom, persistence, 2D fallback and shared-population link');
+
   if (process.env.LIVE_URL) {
     const live = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
     const liveErrors = [];

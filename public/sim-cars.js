@@ -2,6 +2,10 @@ import { congestionCells } from '/lib/congestion.mjs';
 import * as THREE from 'three';
 import * as maplibregl from '/vendor/maplibre-gl.mjs';
 import { modelOpacity } from '/lib/motion.mjs';
+import { frameInterval, modelFadeFor, settings as displaySettings } from '/performance-settings.js';
+
+// 3D models fade in with zoom unless "3D vehicles" is off in the Performance tab (then 0: dots only).
+const fadeAt = zoom => modelFadeFor(modelOpacity, zoom);
 
 const HEADER = 24;
 // Rendering trails the newest snapshot so there is always a later state to interpolate towards.
@@ -163,13 +167,13 @@ class CarLayer {
   render(gl, args) {
     const zoom = this.map.getZoom();
     // Signal points give way to 3D traffic lights at the same zoom as the 3D cars.
-    if (this.signals) this.signals.visible = this.showSignals && zoom >= SIGNAL_MIN_ZOOM && modelOpacity(zoom) < 1;
+    if (this.signals) this.signals.visible = this.showSignals && zoom >= SIGNAL_MIN_ZOOM && fadeAt(zoom) < 1;
     if (!this.count && !this.signals?.visible) return;
     // Dots fade out as the 3D car models fade in (same zoom as the buses).
-    this.material.uniforms.opacity.value = (1 - modelOpacity(zoom)) * this.focus;
+    this.material.uniforms.opacity.value = (1 - fadeAt(zoom)) * this.focus;
     this.signalMaterial.uniforms.focus.value = this.signalFocus;
     if (this.points) this.points.visible = this.count > 0 && this.material.uniforms.opacity.value > 0;
-    this.material.uniforms.size.value = Math.min(9, Math.max(3, 3 + (zoom - 10) * .8)) * devicePixelRatio;
+    this.material.uniforms.size.value = Math.min(9, Math.max(3, 3 + (zoom - 10) * .8)) * this.map.getPixelRatio(); // follows the Performance tab resolution
     this.camera.projectionMatrix.fromArray(args.defaultProjectionData.mainMatrix).multiply(this.originMatrix);
     this.renderer.resetState();
     this.renderer.render(this.scene, this.camera);
@@ -306,10 +310,11 @@ export function createSimulatedCars(map, toggle, signalToggle) {
     const b = map.getBounds(), w = b.getWest(), e = b.getEast(), s = b.getSouth(), n = b.getNorth();
     const dx = (e - w) * MARGIN, dy = (n - s) * MARGIN;
     // Culling only trims what this client receives; the simulation and its IDs are unaffected.
-    const signals = enabled && signalToggle.checked && map.getZoom() >= SIGNAL_MIN_ZOOM;
+    const signals = enabled && signalToggle.checked && map.getZoom() >= SIGNAL_MIN_ZOOM && !document.hidden;
     layer.showSignals = signals;
     if (!signals) layer.setSignalStates([], []);
-    socket.send(JSON.stringify({ type: 'viewport', snapshots: enabled || hotspotToggle.checked, signals, bbox: [w - dx, s - dy, e + dx, n + dy] }));
+    // A hidden page asks for nothing; the shared simulation keeps running regardless.
+    socket.send(JSON.stringify({ type: 'viewport', snapshots: (enabled || hotspotToggle.checked) && !document.hidden, signals, bbox: [w - dx, s - dy, e + dx, n + dy] }));
   }
 
   // Stop-line positions are static for the road network; fetched once the simulation is running.
@@ -366,10 +371,15 @@ export function createSimulatedCars(map, toggle, signalToggle) {
     };
   }
 
+  let lastDraw = 0;
   function frame(now) {
     requestAnimationFrame(frame);
     frames++;
     if (now - fpsSince >= 1000) { fps = frames * 1000 / (now - fpsSince); frames = 0; fpsSince = now; }
+    if (document.hidden) return;
+    // Render rate (Performance tab): skip position updates between draws; time still advances smoothly.
+    if (now - lastDraw < frameInterval(displaySettings().get()) - 1) return;
+    lastDraw = now;
     const dt = lastFrame ? (now - lastFrame) / 1000 : 0;
     lastFrame = now;
     if (hotspotToggle.checked && snapshots.length && now - lastHotspotAt >= 1000) {
@@ -534,6 +544,8 @@ export function createSimulatedCars(map, toggle, signalToggle) {
     return true;
   }
   signalToggle.addEventListener('change', () => { sendViewport(); map.triggerRepaint(); });
+  document.addEventListener('visibilitychange', () => { sendViewport(); if (document.hidden) { snapshots = []; renderTime = null; } });
+  displaySettings().onChange(() => map.triggerRepaint());
   map.on('moveend', sendViewport);
   map.on('style.load', addLayer);
   addLayer();

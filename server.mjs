@@ -7,6 +7,7 @@ import { StopCatalog } from './lib/stops.mjs';
 import { SIM_CONFIG, SimulationSupervisor, cullSnapshot } from './lib/simulation.mjs';
 import { TrainFeed } from './lib/trains.mjs';
 import { CrowdingFeed } from './lib/crowding.mjs';
+import { History } from './lib/history.mjs';
 import { StopControl } from './lib/stop-control.mjs';
 
 const root = new URL('./', import.meta.url);
@@ -21,6 +22,8 @@ const files = new Map([
   ['/sim-cars.js', ['public/sim-cars.js', 'text/javascript; charset=utf-8']],
   ['/trains.js', ['public/trains.js', 'text/javascript; charset=utf-8']],
   ['/stop-tools.js', ['public/stop-tools.js', 'text/javascript; charset=utf-8']],
+  ['/performance.js', ['public/performance.js', 'text/javascript; charset=utf-8']],
+  ['/performance-settings.js', ['public/performance-settings.js', 'text/javascript; charset=utf-8']],
   ['/cameras.js', ['public/cameras.js', 'text/javascript; charset=utf-8']],
   ['/cameras.css', ['public/cameras.css', 'text/css; charset=utf-8']],
   ['/bus-layer.js', ['public/bus-layer.js', 'text/javascript; charset=utf-8']],
@@ -109,6 +112,9 @@ export function createApp({ feed = new BusFeed({ apiKey: process.env.BODS_API_KE
         res.setHeader('Content-Type', 'application/json; charset=utf-8');
         res.setHeader('Cache-Control', 'no-store');
         body = Buffer.from(JSON.stringify(snapshot));
+      } else if (pathname === '/api/history') {
+        // Past closure sessions (newest first) and the running one, if any.
+        return json(200, stopControl?.history?.list() ?? { sessions: [], current: null });
       } else if (pathname === '/api/stops') {
         if (!stopControl) return json(503, { items: [] });
         return json(200, stopControl.summary());
@@ -211,6 +217,7 @@ if (import.meta.main) {
   const trains = new TrainFeed({ appKey: process.env.TFL_APP_KEY?.trim() });
   const crowding = new CrowdingFeed({ trains, appKey: process.env.TFL_APP_KEY?.trim() });
   const stopControl = new StopControl({ trains, feed, stops, simulation });
+  stopControl.history = new History({ stopControl, simulation }).start();
   const server = createApp({ feed, stops, simulation, trains, crowding, stopControl });
   void stops.start();
   void trains.start().then(() => crowding.start());
@@ -231,6 +238,7 @@ if (import.meta.main) {
     clearInterval(busTimer);
     trains.stop();
     crowding.stop();
+    stopControl.history.stop();
     server.close();
     await simulation.close();
     process.exit(0);

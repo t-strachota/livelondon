@@ -80,8 +80,8 @@ function makeTile(cam) {
   el.dataset.flip = "above";
   el.innerHTML = `<button class="cctv-tile"><div class="cctv-frame"><img width="176" height="99" draggable="false" alt="">
     <div class="cctv-fx"></div><span class="cctv-corner tl"></span><span class="cctv-corner tr"></span><span class="cctv-corner bl"></span>
-    <span class="cctv-corner br"></span><div class="cctv-badge live"><i></i>LIVE</div><div class="cctv-badge open">⤢ OPEN</div>
-    <div class="cctv-linking">LINKING</div></div><div class="cctv-label"><i></i><span></span></div></button>
+    <span class="cctv-corner br"></span><div class="cctv-badge live"><i></i>Live</div><div class="cctv-badge open">⤢ Open</div>
+    <div class="cctv-linking">Linking</div></div><div class="cctv-label"><i></i><span></span></div></button>
     <span class="cctv-stem down"></span><span class="cctv-stem up"></span>`;
   const img = el.querySelector("img"), frame = el.querySelector(".cctv-frame");
   el.querySelector(".cctv-label span").textContent = img.alt = el.querySelector("button").title = cam.name;
@@ -223,7 +223,7 @@ function update() {
 toggle.addEventListener("change", update);
 cvImg.onerror = () => {
   cvImg.parentElement.classList.remove("loaded");
-  viewer.querySelector(".cctv-linking").textContent = "IMAGE UNAVAILABLE";
+  viewer.querySelector(".cctv-linking").textContent = "Image unavailable";
 };
 document.addEventListener("visibilitychange", () => {
   if (document.hidden) { cameraController?.abort(); clearInterval(viewerTimer); }

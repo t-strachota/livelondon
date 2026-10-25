@@ -136,10 +136,29 @@ The car count is a modelling choice, not a measured count of London traffic.
 ### Controls
 
 - **Pause / Play** pauses the one shared simulation for everyone.
-- **Cars at next re-initialization**: 5,000–200,000 in steps of 500 (default 5,000; above 15,000 is untested). Applies only to the next re-initialization.
+- **Manual population**: 5,000–300,000 in steps of 500. It applies only when you re-initialize, and it switches the count from London time to manual for everyone (see Performance tab below).
 - **Traffic lights** (default on) shows simulated signal states as red/amber/green points at each approach's stop line, at zoom 15 and above, for signals in view only.
 - **Re-initialize with live data** fetches TomTom while the current run continues, then moves the same cars (IDs kept; added or removed above the new count) to new live-weighted positions in one step under a new run ID. Duplicate requests get `409`. If live data is unavailable or stale, the current run continues and the panel shows why.
 - The panel shows the global count separately from the visible count, simulation time, average speed, data freshness and matched share, real-time factor, step time, gridlocked cars and browser FPS.
+
+### Performance tab
+
+The left panel has two tabs, **Controls** and **Performance**. The Performance tab shows live indicators: browser FPS, simulation step and encode time, simulation speed (real-time factor), simulated cars drawn and on screen, and live bus and train counts. They refresh once a second, only while the tab is open and the page is visible.
+
+**This browser only.** These are saved in this browser's `localStorage` under `london-map:performance`. They change how much this browser draws; other viewers and the simulation are unaffected.
+
+| Setting | Options (default first) | Effect |
+| --- | --- | --- |
+| Preset | High, Balanced, Low (Custom when you change a single setting) | High is the original behaviour. Balanced: 30 updates/s, 3D on, resolution up to 1.5×. Low: 20 updates/s, 2D only, 1×. |
+| Vehicle render rate | Every display frame, 30/s, 20/s | How often moving cars, buses and trains are redrawn. Motion stays smooth because positions are still interpolated. |
+| 3D vehicles | On, off | Off keeps the lighter 2D dots for buses, trains, cars and traffic lights at every zoom. |
+| Map resolution | Device, up to 1.5×, 1× | Caps the map's pixel ratio on high-density screens. |
+
+"Reset to default" returns to High.
+
+**Shared simulation (affects everyone).** The car population belongs to the one shared simulation. By default it follows London time. The **Manual population** slider in the Controls tab, which the Performance tab links to, takes effect only when someone re-initializes with live data. It then stays manual until **Live** or **Back to live** is chosen. A refused request (invalid count, or a re-initialization already running) leaves the count source unchanged. Starting the server with `SIM_POPULATION` also sets a manual count. No browser-only setting changes the population, the timing or the state of the simulation.
+
+While the page is hidden, the browser stops asking for car snapshots and signal frames and skips its drawing work. The shared simulation keeps running.
 
 ### Interfaces
 

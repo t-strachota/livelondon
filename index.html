@@ -15,22 +15,28 @@
   <div id="map" aria-label="Interactive London map with optional TfL bus overlay"></div>
   <div id="cctv-tiles"></div>
   <div id="loading-screen" class="loading-screen" role="status" aria-live="polite">
-    <div class="loading-card"><div class="brand-mark" aria-hidden="true">L<span>•</span></div><p class="eyebrow">LONDON / IN MOTION</p><h1>A city coming to life.</h1><p id="loading-message">Preparing your London map…</p><div class="loading-track"><span></span></div><p class="detail">Live observations. Simulated possibilities.</p><button id="loading-continue" class="quiet-button" type="button">Explore while data loads →</button></div>
+    <div class="loading-index" aria-hidden="true"><span>51.5072° N</span><span>0.1276° W</span><span>Greater London</span></div>
+    <div class="loading-card"><div class="brand-mark" aria-hidden="true">L<span>.</span></div><p class="eyebrow">London / in motion</p><h1>A city<br>coming<br>to life.</h1><p id="loading-message">Preparing your London map…</p><div class="loading-track"><span></span></div><p class="detail">Live observations. Simulated possibilities.</p><button id="loading-continue" class="quiet-button" type="button">Explore while data loads →</button></div>
   </div>
   <aside class="panel" aria-label="Map controls">
-    <header class="panel-header"><div><p class="eyebrow">TRANSPORT OBSERVATORY</p><h1>London<span class="accent">.</span></h1></div><div class="header-actions"><button id="theme-toggle" class="icon-button" aria-label="Enable dark mode" aria-pressed="false" title="Toggle dark mode">☾</button><button id="panel-minimize" class="icon-button" aria-label="Minimize controls" aria-expanded="true" aria-controls="panel-content" title="Minimize controls">−</button></div></header>
+    <header class="panel-header"><div class="brand"><p class="eyebrow">Transport observatory</p><h1>London<span class="accent">.</span></h1></div><div class="header-actions"><button id="theme-toggle" class="icon-button" aria-label="Enable dark mode" aria-pressed="false" title="Toggle dark mode">☾</button><button id="panel-minimize" class="icon-button" aria-label="Minimize controls" aria-expanded="true" aria-controls="panel-content" title="Minimize controls">−</button></div></header>
     <div id="panel-content">
-      <section class="control-section"><h2><span>01</span> Data Streams</h2>
+      <div class="panel-tabs" role="tablist" aria-label="Panel">
+        <button id="tab-btn-controls" type="button" role="tab" data-tab="controls" aria-controls="tab-controls" aria-selected="true">Controls</button>
+        <button id="tab-btn-performance" type="button" role="tab" data-tab="performance" aria-controls="tab-performance" aria-selected="false" tabindex="-1">Performance</button>
+      </div>
+      <div id="tab-controls" role="tabpanel" aria-labelledby="tab-btn-controls">
+      <section class="control-section"><h2><span>01</span> Data streams</h2>
         <label class="layer-toggle"><span><i class="stream-dot buses"></i>Live TfL buses<small>Observed GPS · every 15 seconds</small></span><input id="toggle-buses" type="checkbox" role="switch" aria-controls="bus-info" checked></label>
         <label class="layer-toggle" id="traffic-toggle"><span><i class="stream-dot traffic"></i>Traffic flow<small>TomTom congestion observations</small></span><input id="toggle-traffic" type="checkbox" role="switch"></label>
-        <div id="traffic-legend" class="flow-legend" hidden><span>Free flow</span><i></i><span>Congested</span></div>
+        <div id="traffic-legend" class="flow-legend" hidden><span>Free flow</span><i><b class="free"></b><b class="busy"></b><b class="jam"></b></i><span>Congested</span></div>
         <label class="layer-toggle" id="cctv-toggle"><span><i class="stream-dot cameras"></i>Live cameras<small>TfL street views</small></span><input id="toggle-cameras" type="checkbox" role="switch" aria-controls="camera-status"></label><p id="camera-status" class="detail" hidden>Loading traffic cameras…</p>
         <label class="layer-toggle" id="trains-toggle"><span><i class="stream-dot trains"></i>Trains<small>Tube, Overground, Elizabeth line · estimated from TfL arrival predictions</small></span><input id="toggle-trains" type="checkbox" role="switch" aria-describedby="train-status"></label>
         <label class="layer-toggle"><span>Train lines<small>Official line colours</small></span><input id="toggle-train-lines" type="checkbox" role="switch" checked></label>
         <label class="layer-toggle"><span>Train busyness<small>Blue glow: station crowding (live or typical) spread along the line, not on-train load</small></span><input id="toggle-train-busyness" type="checkbox" role="switch"></label>
         <p id="train-status" class="detail" role="status" aria-live="polite" hidden></p>
       </section>
-      <section class="control-section"><h2><span>02</span> Simulation Settings</h2>
+      <section class="control-section"><h2><span>02</span> Simulation</h2>
         <label class="layer-toggle" id="vehicles-toggle"><span><i class="stream-dot cars"></i>Simulated cars<small>Persistent model · independent of live GPS</small></span><input id="toggle-cars" type="checkbox" role="switch"></label>
         <label class="layer-toggle"><span>Traffic lights<small>Simulated phases · visible up close</small></span><input id="toggle-signals" type="checkbox" role="switch" checked></label>
         <label class="layer-toggle"><span>Congestion epicenters<small>Red glow where simulated queues form</small></span><input id="toggle-hotspots" type="checkbox" role="switch" aria-describedby="hotspot-detail"></label>
@@ -58,7 +64,34 @@
         <details id="bus-info" class="feed-details" open><summary>Live bus feed</summary><div id="feed-status" class="status" data-status="loading" role="status" aria-live="polite">Connecting to live buses</div><p id="bus-count" class="count">Waiting for buses</p><p id="feed-detail" class="detail">GPS locations from TfL via BODS.</p><p id="stop-detail" class="detail"></p><p id="map-hint" class="hint">Zoom in for 3D buses. Buses wait at stops on their own route.</p></details>
         <details class="about-details"><summary>About the model &amp; data</summary><p class="detail">Simulated car positions are seeded from live TomTom traffic observations and then evolve independently. They are estimates, not live tracking of individual vehicles. Population is a modelling choice. Traffic light locations come from OpenStreetMap; timing is simulated. Turn restrictions and conflicts at unsignalised junctions are not modelled. Epicenters highlight cells with at least 8 cars where at least half travel below 11 km/h; signals can also cause these queues.</p></details>
       </section>
-      <footer class="panel-footer"><span class="live-indicator"></span> LONDON IN MOTION <span>EST. / LIVE</span></footer>
+      </div>
+      <div id="tab-performance" role="tabpanel" aria-labelledby="tab-btn-performance" hidden>
+        <section class="control-section"><h2><span>01</span> Live performance</h2>
+          <dl class="metrics" aria-live="off"><dt>Browser</dt><dd id="perf-fps">—</dd><dt>Simulation step</dt><dd id="perf-step">—</dd><dt>Simulation speed</dt><dd id="perf-realtime">—</dd><dt>Simulated cars</dt><dd id="perf-cars">—</dd><dt>Live buses</dt><dd id="perf-buses">—</dd><dt>Trains</dt><dd id="perf-trains">—</dd></dl>
+          <p id="perf-advice" class="detail perf-advice" role="status"></p>
+        </section>
+        <section class="control-section"><h2><span>02</span> This browser only</h2>
+          <p class="detail">Saved on this device. These change how much this browser draws; nobody else is affected and the simulation is unchanged.</p>
+          <fieldset class="perf-presets"><legend>Preset</legend>
+            <label><input type="radio" name="perf-preset" value="low"> Low<small>20 updates/s, 2D dots only, 1× resolution</small></label>
+            <label><input type="radio" name="perf-preset" value="balanced"> Balanced<small>30 updates/s, 3D vehicles, resolution capped at 1.5×</small></label>
+            <label><input type="radio" name="perf-preset" value="high" checked> High (default)<small>Every display frame, 3D vehicles, full resolution</small></label>
+            <label id="perf-preset-custom" hidden><input type="radio" name="perf-preset" value="custom" disabled> Custom<small>Your own mix of the settings below</small></label>
+          </fieldset>
+          <label class="perf-field" for="perf-render-rate">Vehicle render rate<small>How often moving cars, buses and trains are redrawn</small></label>
+          <select id="perf-render-rate"><option value="0">Every display frame (default)</option><option value="30">30 per second</option><option value="20">20 per second</option></select>
+          <label class="layer-toggle"><span>3D vehicles<small>Off: lighter 2D dots at every zoom level</small></span><input id="perf-models" type="checkbox" role="switch" checked></label>
+          <label class="perf-field" for="perf-resolution">Map resolution<small>Lower is lighter on high-density screens</small></label>
+          <select id="perf-resolution"><option value="0">Full (device, default)</option><option value="1.5">Up to 1.5×</option><option value="1">1×</option></select>
+          <div class="sim-controls"><button id="perf-reset" type="button">Reset to default</button></div>
+        </section>
+        <section class="control-section"><h2><span>03</span> Shared simulation</h2>
+          <p class="detail"><strong>Affects everyone.</strong> The car population belongs to the one shared simulation every viewer sees. It follows London time unless someone sets it by hand: moving the population slider takes effect only when the simulation is re-initialized with live data.</p>
+          <dl class="metrics"><dt>Cars</dt><dd id="perf-population">—</dd><dt>Count set by</dt><dd id="perf-count-source">—</dd></dl>
+          <div class="sim-controls"><button id="perf-population-link" type="button">Change population (Controls tab)</button></div>
+        </section>
+      </div>
+      <footer class="panel-footer"><span class="live-indicator"></span> London in motion <span>Est. / live</span></footer>
     </div>
   </aside>
   <div class="closure-card" aria-label="Stop tools">
@@ -69,8 +102,16 @@
       <button id="exit-focus" class="closure-button exit-focus" type="button" hidden>Exit focus</button>
     </div>
     <p id="tool-banner" class="tool-banner" role="status" aria-live="polite" hidden></p>
+    <div id="closure-body" class="closure-body" aria-label="Closure statistics (drag the bottom-right corner to resize)">
+    <section id="economics" class="economics" hidden aria-label="Estimated economic impact">
+      <h3>Estimated economic impact</h3>
+      <p id="econ-total" class="econ-total">£0</p>
+      <p id="econ-rate" class="econ-rate"></p>
+      <p id="econ-split" class="detail"></p>
+      <p class="detail"><strong>Estimated, assumption-based.</strong> Lost time valued at £12.50 per person-hour: extra delay measured on simulated roads near the closures (1.3 people per car), plus 20 extra minutes for each displaced passenger, with stopped vehicles refilling twice an hour.</p>
+    </section>
     <section id="stopped-panel" class="stopped-panel" hidden aria-label="Stopped trains and buses">
-      <h3>STOPPED</h3>
+      <h3>Stopped</h3>
       <ul id="stopped-list"></ul>
       <p id="stopped-summary" class="detail"></p>
       <h3>Most affected roads</h3>
@@ -87,11 +128,16 @@
         <ol id="sim-affected"></ol>
       </div>
     </section>
+    <details id="history" class="history">
+      <summary>History <span id="history-count" class="detail"></span></summary>
+      <ol id="history-list"><li class="detail">No closure sessions yet.</li></ol>
+    </details>
+    </div>
   </div>
 <div id="cctv-viewer" hidden>
   <div class="cv-head"><span id="cv-name"></span><button id="cv-close" aria-label="Close camera">×</button></div>
-  <div class="cctv-frame"><img id="cv-img" alt=""><div class="cctv-fx"></div><div class="cctv-badge live"><i></i>LIVE</div>
-    <div class="cctv-linking">LINKING</div></div>
+  <div class="cctv-frame"><img id="cv-img" alt=""><div class="cctv-fx"></div><div class="cctv-badge live"><i></i>Live</div>
+    <div class="cctv-linking">Linking</div></div>
   <div class="cv-meta">TfL JamCam · refreshes every 5 s · <a id="cv-src" target="_blank" rel="noopener noreferrer">open image</a></div>
   <div class="cv-grip" aria-label="Resize camera"></div>
 </div>

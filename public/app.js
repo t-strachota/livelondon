@@ -6,6 +6,8 @@ import { createSimulatedCars } from '/sim-cars.js';
 import { createCameras } from '/cameras.js';
 import { addShapeIcon, createTrains } from '/trains.js';
 import { createStopTools } from '/stop-tools.js';
+import { createPerformance } from '/performance.js';
+import { frameInterval, settings as displaySettings } from '/performance-settings.js';
 
 const interfaceUI = createInterface();
 
@@ -101,7 +103,7 @@ busToggle.addEventListener('change', () => {
 function setDotOpacity() {
   if (!map.getLayer('live-bus-dots')) return;
   const ageOpacity = ['case', ['get', 'stale'], .35, 1];
-  const opacity = modelsReady ? ['interpolate', ['linear'], ['zoom'], 16, ageOpacity, 17, 0] : ageOpacity;
+  const opacity = modelsReady && displaySettings().get().models3d ? ['interpolate', ['linear'], ['zoom'], 16, ageOpacity, 17, 0] : ageOpacity;
   map.setPaintProperty('live-bus-dots', 'icon-opacity', opacity);
 }
 
@@ -160,6 +162,8 @@ map.on('load', async () => {
   layers.cameras = createCameras(map, overlayToggles[2], document.querySelector('.panel'));
   layers.trains = createTrains(map, document.querySelector('#toggle-trains'), document.querySelector('#toggle-train-lines'), document.querySelector('#train-status'), document.querySelector('#toggle-train-busyness'));
   layers.stopTools = createStopTools(map, layers, { busAt });
+  layers.performance = createPerformance(map, layers, { showTab: interfaceUI.showTab });
+  displaySettings().onChange(() => { setDotOpacity(); dirty = true; });
   updateBusVisibility();
   dirty = true;
   void poll();
@@ -213,7 +217,8 @@ document.addEventListener('visibilitychange', () => {
 function frame() {
   if (!busesEnabled) { requestAnimationFrame(frame); return; }
   const now = Date.now(), moving = store.movingUntil > now;
-  if (!document.hidden && (((dirty || moving || wasMoving) && now - lastRender >= 32) || now - lastRender >= 1000)) {
+  const interval = Math.max(32, frameInterval(displaySettings().get())); // Performance tab render rate
+  if (!document.hidden && (((dirty || moving || wasMoving) && now - lastRender >= interval) || now - lastRender >= 1000)) {
     renderedBuses = store.sample(now);
     if (modelsReady) modelLayer.update(renderedBuses);
     // Panning only changes the camera; do not re-send thousands of unchanged points.
