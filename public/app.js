@@ -1,8 +1,11 @@
+import { createInterface } from '/ui.js';
 import * as maplibregl from '/vendor/maplibre-gl.mjs';
 import { BusMotionStore, pitchForZoom, toGeoJSON } from '/lib/motion.mjs';
 import { createTraffic } from '/traffic.js';
 import { createSimulatedCars } from '/sim-cars.js';
 import { createCameras } from '/cameras.js';
+
+const interfaceUI = createInterface();
 
 maplibregl.setWorkerUrl('/vendor/maplibre-gl-worker.mjs');
 
@@ -48,6 +51,7 @@ const map = new maplibregl.Map({
   pitch: 0, maxPitch: 45, dragRotate: false, touchPitch: false, pitchWithRotate: false,
   canvasContextAttributes: { antialias: true },
 });
+interfaceUI.attach(map);
 map.touchZoomRotate.disableRotation();
 map.keyboard.disableRotation();
 map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'bottom-right');

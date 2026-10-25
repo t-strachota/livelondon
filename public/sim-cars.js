@@ -1,3 +1,4 @@
+import { congestionCells } from '/lib/congestion.mjs';
 import * as THREE from 'three';
 import * as maplibregl from '/vendor/maplibre-gl.mjs';
 import { modelOpacity } from '/lib/motion.mjs';
@@ -171,6 +172,19 @@ export function createSimulatedCars(map, toggle, signalToggle) {
   const $ = id => document.getElementById(id);
   const info = $('car-info'), connection = $('sim-connection'), progressLine = $('sim-progress');
   const slider = $('sim-population'), sliderValue = $('sim-population-value'), pauseButton = $('sim-pause'), reinitButton = $('sim-reinit');
+  const hotspotToggle = $('toggle-hotspots');
+  try { hotspotToggle.checked = localStorage.getItem('london-map:hotspots') === 'on'; } catch { /* Optional persistence. */ }
+  let lastHotspotAt = 0;
+  const emptyHotspots = { type: 'FeatureCollection', features: [] };
+  function addHotspots() {
+    if (!map.getSource('congestion-epicenters')) map.addSource('congestion-epicenters', { type: 'geojson', data: emptyHotspots });
+    if (!map.getLayer('congestion-glow')) map.addLayer({ id: 'congestion-glow', type: 'heatmap', source: 'congestion-epicenters',
+      layout: { visibility: hotspotToggle.checked ? 'visible' : 'none' },
+      paint: { 'heatmap-weight': ['get', 'intensity'], 'heatmap-intensity': 1.4,
+        'heatmap-radius': ['interpolate', ['linear'], ['zoom'], 10, 18, 14, 55, 18, 100], 'heatmap-opacity': .7,
+        'heatmap-color': ['interpolate', ['linear'], ['heatmap-density'], 0, 'rgba(239,68,68,0)', .25, 'rgba(239,68,68,0.12)', .5, 'rgba(239,68,68,0.4)', .8, 'rgba(239,68,68,0.75)', 1, 'rgba(255,105,90,0.95)'] }
+    }, map.getLayer('simulated-cars') ? 'simulated-cars' : map.getLayer('live-bus-dots') ? 'live-bus-dots' : undefined);
+  }
   const layer = new CarLayer();
   let models = null, lights = null; // 3D cars and traffic lights, loaded like the bus models
   import('/bus-layer.js').then(({ BusLayer, makeCar, makeTrafficLight }) => {
@@ -183,6 +197,7 @@ export function createSimulatedCars(map, toggle, signalToggle) {
   let renderTime = null, lastFrame = 0, lastDom = 0, lastSnapshotAt = 0, frames = 0, fpsSince = performance.now(), fps = 0, visible = 0, xy = new Float32Array(0), received = 0;
 
   function addLayer() {
+    addHotspots();
     if (!map.getLayer(layer.id)) map.addLayer(layer, map.getLayer('live-bus-dots') ? 'live-bus-dots' : undefined);
     if (models && !map.getLayer(models.id)) map.addLayer(models);
     if (lights && !map.getLayer(lights.id)) map.addLayer(lights);
@@ -196,7 +211,7 @@ export function createSimulatedCars(map, toggle, signalToggle) {
     const signals = enabled && signalToggle.checked && map.getZoom() >= SIGNAL_MIN_ZOOM;
     layer.showSignals = signals;
     if (!signals) layer.setSignalStates([], []);
-    socket.send(JSON.stringify({ type: 'viewport', snapshots: enabled, signals, bbox: [w - dx, s - dy, e + dx, n + dy] }));
+    socket.send(JSON.stringify({ type: 'viewport', snapshots: enabled || hotspotToggle.checked, signals, bbox: [w - dx, s - dy, e + dx, n + dy] }));
   }
 
   // Stop-line positions are static for the road network; fetched once the simulation is running.
@@ -214,7 +229,7 @@ export function createSimulatedCars(map, toggle, signalToggle) {
   function acceptStatus(next) {
     status = next;
     if (next.runId) void loadSignals();
-    if (next.runId !== runId) { runId = next.runId; snapshots = []; renderTime = null; }
+    if (next.runId !== runId) { runId = next.runId; snapshots = []; renderTime = null; map.getSource('congestion-epicenters')?.setData(emptyHotspots); }
   }
 
   function connect() {
@@ -258,6 +273,10 @@ export function createSimulatedCars(map, toggle, signalToggle) {
     if (now - fpsSince >= 1000) { fps = frames * 1000 / (now - fpsSince); frames = 0; fpsSince = now; }
     const dt = lastFrame ? (now - lastFrame) / 1000 : 0;
     lastFrame = now;
+    if (hotspotToggle.checked && snapshots.length && now - lastHotspotAt >= 1000) {
+      map.getSource('congestion-epicenters')?.setData(congestionCells(snapshots.at(-1)));
+      lastHotspotAt = now;
+    }
     if (enabled && snapshots.length) {
       const newest = snapshots.at(-1), oldest = snapshots[0];
       if (renderTime === null) renderTime = newest.time - BUFFER_SECONDS;
@@ -286,13 +305,13 @@ export function createSimulatedCars(map, toggle, signalToggle) {
   }
 
   function updatePanel(now) {
-    if (!enabled) return;
-    const stale = connected && lastSnapshotAt && now - lastSnapshotAt > STALE_AFTER_MS && status?.lifecycle === 'running';
+    const stale = (enabled || hotspotToggle.checked) && connected && lastSnapshotAt && now - lastSnapshotAt > STALE_AFTER_MS && status?.lifecycle === 'running';
     const state = !connected ? 'unavailable' : stale ? 'stale' : ({ running: 'live', paused: 'stale' })[status?.lifecycle] ?? (status?.lifecycle === 'initializing' ? 'loading' : 'unavailable');
     connection.dataset.status = state;
     connection.textContent = !connected ? 'Reconnecting to simulation… showing last confirmed state'
       : stale ? 'No new snapshots · holding last confirmed state'
       : ({ running: 'Simulation running', paused: 'Simulation paused for everyone', initializing: 'Preparing simulation…', failed: `Simulation failed: ${status?.reason}`, crashed: 'Simulation restarting…', unavailable: status?.reason ?? 'Simulation unavailable' })[status?.lifecycle] ?? 'Connecting…';
+    if (hotspotToggle.checked) $('hotspot-detail').textContent = `${!connected || stale ? 'Last confirmed clusters · ' : ''}Slow simulated cars in the loaded map area. Model estimates, not observed incidents.`;
     const population = status?.population, observation = status?.observation, perf = status?.performance, health = status?.health;
     $('sim-global').textContent = population ? `${population.actual.toLocaleString()} (target ${population.target.toLocaleString()})` : '—';
     $('sim-visible').textContent = layer.count ? visible.toLocaleString() : '0';
@@ -333,10 +352,21 @@ export function createSimulatedCars(map, toggle, signalToggle) {
 
   function update() {
     enabled = toggle.checked;
-    info.hidden = !enabled;
+    info.hidden = false;
     sendViewport();
-    if (!enabled) { snapshots = []; renderTime = null; }
+    if (!enabled && !hotspotToggle.checked) { snapshots = []; renderTime = null; }
+    if (!enabled) visible = 0;
   }
+  hotspotToggle.addEventListener('change', () => {
+    try { localStorage.setItem('london-map:hotspots', hotspotToggle.checked ? 'on' : 'off'); } catch { /* Optional persistence. */ }
+    $('hotspot-detail').hidden = !hotspotToggle.checked;
+    map.setLayoutProperty('congestion-glow', 'visibility', hotspotToggle.checked ? 'visible' : 'none');
+    if (!hotspotToggle.checked) map.getSource('congestion-epicenters')?.setData(emptyHotspots);
+    lastHotspotAt = 0;
+    update();
+    map.triggerRepaint();
+  });
+  $('hotspot-detail').hidden = !hotspotToggle.checked;
   toggle.addEventListener('change', update);
   signalToggle.addEventListener('change', () => { sendViewport(); map.triggerRepaint(); });
   map.on('moveend', sendViewport);

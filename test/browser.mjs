@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { once } from 'node:events';
+import { once, EventEmitter } from 'node:events';
 import { mkdir } from 'node:fs/promises';
 import { chromium } from 'playwright';
 import { PNG } from 'pngjs';
@@ -7,7 +7,8 @@ import { createApp } from '../server.mjs';
 import { makeBuses } from './fixtures.mjs';
 
 await mkdir('test-results', { recursive: true });
-const server = createApp({ feed: { getSnapshot: async () => ({ status: 'live', configured: true, fetchedAt: new Date().toISOString(), buses: makeBuses(300) }) } });
+const simulation = Object.assign(new EventEmitter(), { snapshot: null, getStatus: () => ({ lifecycle: 'unavailable', reason: 'Bus-only test fixture', runId: null, job: { state: 'idle' } }) });
+const server = createApp({ simulation, feed: { getSnapshot: async () => ({ status: 'live', configured: true, fetchedAt: new Date().toISOString(), buses: makeBuses(300) }) } });
 server.listen(0, '127.0.0.1');
 await once(server, 'listening');
 const base = `http://127.0.0.1:${server.address().port}`;
@@ -15,7 +16,7 @@ let browser, page;
 const errors = [];
 let apiRequests = 0;
 try {
-  browser = await chromium.launch({ headless: true, args: ['--enable-unsafe-swiftshader', '--use-angle=swiftshader'] });
+  browser = await chromium.launch({ executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE || undefined, headless: true, args: ['--enable-unsafe-swiftshader', '--use-angle=swiftshader'] });
   const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
   page = await context.newPage();
   page.on('request', request => { if (new URL(request.url()).pathname === '/api/buses') apiRequests++; });

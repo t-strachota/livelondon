@@ -24,7 +24,11 @@ const simTimer = setInterval(() => {
     out.writeUInt32LE(i, 24 + 4 * i);
     out.writeInt32LE(Math.round((-.135 + (i % 20) * .0007 + simulation.time * 10 / 69_400) * 1e7), 24 + 4 * n + 4 * i);
     out.writeInt32LE(Math.round((51.503 + Math.floor(i / 20) * .0008) * 1e7), 24 + 8 * n + 4 * i);
-    out.writeUInt16LE(1000, 24 + 22 * n + 2 * i);
+    out.writeUInt16LE(simulation.congested && i < 30 ? 0 : 1000, 24 + 22 * n + 2 * i);
+    if (simulation.congested && i < 30) {
+      out.writeInt32LE(Math.round((-.128 + i * .000001) * 1e7), 24 + 4 * n + 4 * i);
+      out.writeInt32LE(Math.round(51.507 * 1e7), 24 + 8 * n + 4 * i);
+    }
   }
   simulation.snapshot = out;
   simulation.emit('snapshot', out);
@@ -49,7 +53,7 @@ const cameras = Array.from({ length: 24 }, (_, index) => ({
 let browser, page;
 const errors = [], calls = { speeds: 0, tiles: 0, cameraList: 0, images: 0, buses: 0 };
 try {
-  browser = await chromium.launch({ headless: true, args: ['--enable-unsafe-swiftshader', '--use-angle=swiftshader'] });
+  browser = await chromium.launch({ executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE || undefined, headless: true, args: ['--enable-unsafe-swiftshader', '--use-angle=swiftshader'] });
   const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
   page = await context.newPage();
   page.on('pageerror', error => errors.push(error.message));
@@ -77,6 +81,19 @@ try {
   await page.waitForFunction(() => window.londonLayers?.cameras && window.londonBuses.buses.length === 300);
   assert.equal(calls.speeds, 0); assert.equal(calls.tiles, 0); assert.equal(calls.cameraList, 0);
 
+  await page.waitForFunction(() => document.getElementById('loading-screen').hidden);
+  assert.deepEqual(await page.locator('.control-section h2').allTextContents(), ['01 Data Streams', '02 Simulation Settings', '03 Statistics']);
+  await page.locator('#panel-minimize').click();
+  assert.equal(await page.locator('#panel-content').isVisible(), false);
+  assert.equal(await page.locator('#panel-minimize').getAttribute('aria-expanded'), 'false');
+  await page.locator('#panel-minimize').click();
+  await page.locator('#theme-toggle').click();
+  assert.equal(await page.locator('html').getAttribute('data-theme'), 'dark');
+  assert.equal(await page.evaluate(() => window.londonBuses.map.getPaintProperty('background', 'background-color')), '#1b2632');
+  await page.screenshot({ path: 'test-results/ux-dark.png' });
+  await page.locator('#theme-toggle').click();
+  assert.equal(await page.evaluate(() => window.londonBuses.map.getPaintProperty('background', 'background-color')), '#f2f2ef');
+
   // Cars come only from the server's run: the browser draws what it is sent and never spawns its own.
   await page.locator('#toggle-buses').uncheck();
   await page.evaluate(() => window.londonBuses.map.jumpTo({ zoom: 13, center: [-.128, 51.507] }));
@@ -87,7 +104,7 @@ try {
   assert.equal(await page.evaluate(() => window.londonBuses.buses.length), 0);
   await page.waitForFunction(() => document.querySelector('#sim-global').textContent.startsWith('200'));
   assert.match(await page.locator('#sim-data').textContent(), /Fallback/);
-  assert.match(await page.locator('#car-info').textContent(), /They are estimates, not live tracking of individual vehicles\./);
+  assert.match(await page.locator('.about-details').textContent(), /They are estimates, not live tracking of individual vehicles\./);
   // Smooth motion between 5 Hz snapshots: positions change between consecutive animation frames.
   const frameMoves = await page.evaluate(() => new Promise(resolve => {
     const seen = [];
@@ -106,6 +123,9 @@ try {
   await page.waitForTimeout(800);
   assert.equal(await page.evaluate(() => window.londonLayers.cars.runId), 7);
   assert.ok(await page.evaluate(() => window.londonBuses.map.getLayer('simulated-cars')));
+  // Check black dots below the 3D crossfade; close-zoom car models are grey.
+  await page.evaluate(() => window.londonBuses.map.jumpTo({ zoom: 15 }));
+  await page.waitForTimeout(300);
   // The re-added layer actually draws: dark car pixels on the canvas.
   const darkPixels = await page.evaluate(() => {
     const { map } = window.londonBuses, gl = map.painter.context.gl;
@@ -119,9 +139,36 @@ try {
     }));
   });
   assert.ok(darkPixels > 50, `only ${darkPixels} dark pixels after the style reload`);
+  await page.evaluate(() => window.londonBuses.map.jumpTo({ zoom: 16.5 }));
+  await page.waitForTimeout(300);
   const visible = await page.evaluate(() => window.londonLayers.cars.visibleCount);
   assert.ok(visible > 0 && visible < 200, `visible ${visible}`);
   await page.waitForFunction(() => document.querySelector('#sim-visible').textContent !== '200');
+
+  // Queue clusters are visual estimates; they work independently of car dots.
+  await page.evaluate(() => window.londonBuses.map.jumpTo({ zoom: 13, center: [-.128, 51.507] }));
+  simulation.congested = true;
+  await page.locator('#toggle-hotspots').check();
+  await page.waitForFunction(async () => (await window.londonBuses.map.getSource('congestion-epicenters').getData()).features.length > 0);
+  await page.locator('#toggle-cars').uncheck();
+  const beforeHotspotFrames = await page.evaluate(() => window.londonLayers.cars.snapshotsReceived);
+  await page.waitForFunction(n => window.londonLayers.cars.snapshotsReceived > n, beforeHotspotFrames);
+  assert.equal(await page.evaluate(() => window.londonBuses.map.getLayoutProperty('congestion-glow', 'visibility')), 'visible');
+  assert.equal(await page.evaluate(() => window.londonLayers.cars.runId), 7);
+  await page.waitForTimeout(700);
+  const hotspotImage = PNG.sync.read(await page.locator('.maplibregl-canvas').screenshot());
+  let glowPixels = 0;
+  for (let i = 0; i < hotspotImage.data.length; i += 4) {
+    const [r, g, b] = hotspotImage.data.subarray(i, i + 3);
+    if (r > 160 && r > g * 1.2 && r > b * 1.2) glowPixels++;
+  }
+  assert.ok(glowPixels > 30, `Expected a visible red queue glow, got ${glowPixels} pixels`);
+  await page.screenshot({ path: 'test-results/ux-hotspots.png' });
+  simulation.congested = false;
+  await page.waitForFunction(async () => (await window.londonBuses.map.getSource('congestion-epicenters').getData()).features.length === 0);
+  await page.locator('#toggle-hotspots').uncheck();
+  await page.locator('#toggle-cars').check();
+  await page.waitForFunction(() => window.londonLayers.cars.renderedCount > 0);
 
   // Pause is shared and holds positions; play resumes.
   await page.locator('#sim-pause').click();
@@ -193,8 +240,27 @@ try {
   await page.locator('#toggle-cars').uncheck();
   for (const name of ['buses', 'cars', 'traffic', 'cameras']) assert.equal(await page.locator(`#toggle-${name}`).isChecked(), false);
   assert.deepEqual(calls, paused);
+  await page.locator('#theme-toggle').click();
+  await page.locator('#panel-minimize').click();
+  await page.reload();
+  await page.waitForFunction(() => window.londonLayers?.cameras && document.getElementById('loading-screen').hidden);
+  assert.equal(await page.locator('html').getAttribute('data-theme'), 'dark');
+  assert.equal(await page.locator('#panel-content').isVisible(), false);
+  assert.equal(await page.evaluate(() => window.londonBuses.map.getPaintProperty('background', 'background-color')), '#1b2632');
+  await page.locator('#panel-minimize').click();
   await page.setViewportSize({ width: 390, height: 844 });
   await page.screenshot({ path: 'test-results/layers-mobile.png' });
+  // A failed map provider must not trap the user behind the loader.
+  const offline = await context.newPage();
+  await offline.emulateMedia({ reducedMotion: 'reduce' });
+  await offline.route('https://api.maptiler.com/**', route => route.abort());
+  await offline.goto(base);
+  await offline.locator('#loading-continue').click();
+  await offline.waitForFunction(() => document.getElementById('loading-screen').hidden);
+  const offlineExpanded = await offline.locator('#panel-minimize').getAttribute('aria-expanded');
+  await offline.locator('#panel-minimize').click();
+  assert.equal(await offline.locator('#panel-minimize').getAttribute('aria-expanded'), String(offlineExpanded !== 'true'));
+  await offline.close();
   assert.deepEqual(errors, []);
   console.log(JSON.stringify({ result: 'PASS: independent overlays', calls, screenshots: 'test-results/' }));
 } catch (error) {

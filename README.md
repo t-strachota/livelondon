@@ -24,6 +24,14 @@ Open **http://localhost:3000**. Set `PORT` in `.env` if needed. The app is serve
 
 Use the **Live TfL buses** switch in the map panel to show or hide the bus overlay. It starts enabled and remembers your selection in this browser. Turning it off hides the dots, 3D buses, stop markers and bus information, closes bus popups, pauses bus requests, and restores a flat map. Turning it on immediately loads fresh positions and restores the zoom-dependent bus models and tilt. The basemap remains available throughout. **Traffic flow**, **Simulated cars**, and **Live cameras** are independent switches, initially off. All four choices are remembered. Simulated cars remain available when buses are hidden; cars and cameras keep the main map’s bus-controlled 0–40° tilt.
 
+## Interface and appearance
+
+The left panel groups **Data Streams**, **Simulation Settings**, and **Statistics**. Use the minus button to minimize it and the plus button to reopen it. The moon/sun button switches both the controls and basemap between light and dark themes. These preferences persist in this browser; they do not restart the shared simulation.
+
+An initial loading screen introduces the map and dismisses once it is ready. **Explore while data loads** lets you continue immediately, including during a slow or unavailable map connection. Bus and simulation feeds connect independently and report their own readiness in Statistics.
+
+Traffic flow uses thinner, partially transparent TomTom lines with a small free-flow/congested legend. Tile refreshes keep the existing layer in place. **Congestion epicenters** adds soft red glows over clusters of slow *simulated* cars, independently of the car-dot toggle. Every second it groups received cars into 250 m cells and highlights cells with at least eight cars below 3 m/s (10.8 km/h), where at least half the cell's cars are slow. This is a viewport-derived visual estimate, not city-wide incident detection or live congestion tracking; traffic lights can also create these queues. Reconnecting holds the last confirmed state. Rendering these glows never changes vehicle positions or simulation state.
+
 ## API keys and configuration
 
 The shared project keys are included below as requested. The BODS key is also in the Git-tracked `.env`; the MapTiler browser key is configured in `public/app.js`.
