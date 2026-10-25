@@ -193,11 +193,89 @@ export function createSimulatedCars(map, toggle, signalToggle) {
     addLayer();
   }).catch(() => {});
   let enabled = false, socket, retry = 1000, retryTimer, status = null, runId = null, snapshots = [], connected = false;
-  let signalsLoading = false, signalFrames = 0;
+  let signalsLoading = false, signalFrames = 0, impact = { type: 'FeatureCollection', features: [] }, closureKey = '';
   let renderTime = null, lastFrame = 0, lastDom = 0, lastSnapshotAt = 0, frames = 0, fpsSince = performance.now(), fps = 0, visible = 0, xy = new Float32Array(0), received = 0;
+
+  // Closed roads (red dashed) and roads whose congestion changed because of closures (green freer, red slower).
+  function addClosureLayers() {
+    if (!map.getSource('closure-impact')) map.addSource('closure-impact', { type: 'geojson', data: impact });
+    const before = map.getLayer('live-bus-dots') ? 'live-bus-dots' : undefined;
+    if (!map.getLayer('closure-impact')) map.addLayer({
+      id: 'closure-impact', type: 'line', source: 'closure-impact', filter: ['!', ['has', 'closed']],
+      layout: { 'line-cap': 'round' },
+      paint: {
+        'line-width': ['interpolate', ['linear'], ['zoom'], 11, 3, 16, 7], 'line-opacity': .85,
+        'line-color': ['interpolate', ['linear'], ['get', 'impact'], -.4, '#1a9850', -.15, '#91cf60', .15, '#fdae61', .3, '#f46d43', .5, '#c51b1b'],
+      },
+    }, before);
+    if (!map.getLayer('closed-roads')) {
+      map.addLayer({ id: 'closed-roads-casing', type: 'line', source: 'closure-impact', filter: ['has', 'closed'], paint: { 'line-color': '#fff', 'line-width': ['interpolate', ['linear'], ['zoom'], 11, 6, 16, 12] } }, before);
+      map.addLayer({ id: 'closed-roads', type: 'line', source: 'closure-impact', filter: ['has', 'closed'], paint: { 'line-color': '#d0021b', 'line-width': ['interpolate', ['linear'], ['zoom'], 11, 4, 16, 8], 'line-dasharray': [1.2, .8] } }, before);
+    }
+  }
+
+  // Close-roads mode (top-right button): clicking a road closes the stretch between its junctions in
+  // both directions; clicking a closed road reopens it. Applies to the one shared simulation.
+  const closureButton = $('closure-mode'), closureNote = $('closure-note');
+  let closing = false;
+  function setClosing(on) {
+    closing = on;
+    closureButton.setAttribute('aria-pressed', String(on));
+    closureButton.textContent = on ? 'Done closing roads' : 'Close roads';
+    map.getCanvas().classList.toggle('closing-roads', on);
+    if (on && !toggle.checked) { toggle.checked = true; update(); } // closures and their impact draw with the cars
+    closureNote.textContent = on ? 'Click a road to close it. Click a red dashed road to reopen it.' : '';
+    updateClosurePanel();
+  }
+  closureButton.addEventListener('click', () => setClosing(!closing));
+
+  async function onRoadClick(event) {
+    if (!status?.runId) { closureNote.textContent = 'The simulation is still starting.'; return; }
+    const { x, y } = event.point;
+    const closedHit = map.getLayer('closed-roads') ? map.queryRenderedFeatures([[x - 8, y - 8], [x + 8, y + 8]], { layers: ['closed-roads'] })[0] : null;
+    const body = closedHit ? { action: 'reopen', id: Number(closedHit.properties.id) } : { action: 'close', lon: event.lngLat.lng, lat: event.lngLat.lat };
+    closureNote.textContent = closedHit ? `Reopening ${closedHit.properties.name}…` : 'Closing…';
+    try {
+      const { closures } = await post('/api/simulation/closures', body);
+      status = { ...status, closures };
+      closureNote.textContent = closedHit ? `Reopened ${closedHit.properties.name}.` : `Closed ${closures.at(-1)?.name ?? 'road'}. Cars heading for it now detour.`;
+      updateClosurePanel();
+    } catch (error) { closureNote.textContent = error.message; }
+  }
+
+  function updateClosurePanel() {
+    const closures = status?.closures ?? [];
+    $('sim-closures').hidden = !closures.length && !closing;
+    $('sim-closure-results').hidden = !closures.length;
+    const key = closures.map(c => c.id).join(',');
+    if (key !== closureKey) {
+      closureKey = key;
+      $('sim-closure-list').replaceChildren(...closures.map(c => {
+        const item = document.createElement('li'), name = document.createElement('span'), reopen = document.createElement('button');
+        name.textContent = c.name;
+        reopen.type = 'button';
+        reopen.textContent = 'Reopen';
+        reopen.addEventListener('click', async () => {
+          reopen.disabled = true;
+          try { status = { ...status, closures: (await post('/api/simulation/closures', { action: 'reopen', id: c.id })).closures }; updateClosurePanel(); }
+          catch (error) { progressLine.textContent = error.message; reopen.disabled = false; }
+        });
+        item.append(name, reopen);
+        return item;
+      }));
+    }
+    $('sim-rerouted').textContent = `${(status?.rerouted ?? 0).toLocaleString()} cars sent another way around closures`;
+    const top = status?.mostAffected ?? [];
+    $('sim-affected').replaceChildren(...(top.length ? top : [null]).map(t => {
+      const item = document.createElement('li');
+      item.textContent = t ? `${t.name}: ${t.slowerPercent}% slower${t.extraQueue > 0 ? `, +${t.extraQueue} queued` : ''}` : 'No clear impact yet (needs a few samples, every 5 s)';
+      return item;
+    }));
+  }
 
   function addLayer() {
     addHotspots();
+    addClosureLayers();
     if (!map.getLayer(layer.id)) map.addLayer(layer, map.getLayer('live-bus-dots') ? 'live-bus-dots' : undefined);
     if (models && !map.getLayer(models.id)) map.addLayer(models);
     if (lights && !map.getLayer(lights.id)) map.addLayer(lights);
@@ -241,6 +319,7 @@ export function createSimulatedCars(map, toggle, signalToggle) {
       if (typeof event.data === 'string') {
         const message = JSON.parse(event.data);
         if (message.type === 'status' || message.type === 'run') acceptStatus(message.status);
+        if (message.type === 'impact') { impact = message.geojson; map.getSource('closure-impact')?.setData(impact); }
         if (message.type === 'progress' && status) status = { ...status, job: { ...status.job, stage: message.progress.stage, fraction: message.progress.fraction } };
         return;
       }
@@ -323,6 +402,7 @@ export function createSimulatedCars(map, toggle, signalToggle) {
       $('sim-data').textContent = `${label}${age == null ? '' : ` · observed ${age} min before start`} · ${(observation.matchedShare * 100).toFixed(0)}% roads matched, rest inferred`;
     } else $('sim-data').textContent = '—';
     $('sim-health').textContent = perf ? `${perf.realtimeFactor}× real time · step ${perf.stepMs} ms · ${health.gridlocked} gridlocked · ${fps.toFixed(0)} FPS${perf.realtimeFactor < 1 ? ' · degraded' : ''}` : `${fps.toFixed(0)} FPS`;
+    updateClosurePanel();
     const job = status?.job;
     progressLine.textContent = job?.state === 'preparing' ? `Re-initializing (${job.population.toLocaleString()} cars): ${job.stage} ${Math.round((job.fraction ?? 0) * 100)}%`
       : job?.state === 'failed' ? `Re-initialization failed: ${job.reason}.`
@@ -353,6 +433,7 @@ export function createSimulatedCars(map, toggle, signalToggle) {
   function update() {
     enabled = toggle.checked;
     info.hidden = false;
+    for (const id of ['closure-impact', 'closed-roads-casing', 'closed-roads']) if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', enabled ? 'visible' : 'none');
     sendViewport();
     if (!enabled && !hotspotToggle.checked) { snapshots = []; renderTime = null; }
     if (!enabled) visible = 0;
@@ -379,6 +460,6 @@ export function createSimulatedCars(map, toggle, signalToggle) {
     get enabled() { return enabled; }, get runId() { return runId; }, get status() { return status; },
     get visibleCount() { return visible; }, get renderedCount() { return layer.count; }, get fps() { return fps; },
     get snapshotsReceived() { return received; }, get signalFrames() { return signalFrames; }, get connected() { return connected; },
-    positions: () => Array.from(xy.subarray(0, layer.count * 2)), latest: () => snapshots.at(-1),
+    positions: () => Array.from(xy.subarray(0, layer.count * 2)), latest: () => snapshots.at(-1), onRoadClick, closing: () => closing,
   };
 }

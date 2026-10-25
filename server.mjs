@@ -4,7 +4,7 @@ import { gzipSync } from 'node:zlib';
 import { WebSocketServer } from 'ws';
 import { BusFeed, POLL_MS } from './lib/feed.mjs';
 import { StopCatalog } from './lib/stops.mjs';
-import { SimulationSupervisor, cullSnapshot } from './lib/simulation.mjs';
+import { SIM_CONFIG, SimulationSupervisor, cullSnapshot } from './lib/simulation.mjs';
 
 const root = new URL('./', import.meta.url);
 const files = new Map([
@@ -28,7 +28,7 @@ const files = new Map([
   ['/vendor/maplibre-gl-shared.mjs', ['node_modules/maplibre-gl/dist/maplibre-gl-shared.mjs', 'text/javascript; charset=utf-8']],
   ['/vendor/maplibre-gl.css', ['node_modules/maplibre-gl/dist/maplibre-gl.css', 'text/css; charset=utf-8']],
 ]);
-const POST_ROUTES = new Set(['/api/simulation/reinitialize', '/api/simulation/pause']);
+const POST_ROUTES = new Set(['/api/simulation/reinitialize', '/api/simulation/pause', '/api/simulation/closures']);
 // A slow client skips snapshots rather than queueing them without bound.
 const MAX_BUFFERED_BYTES = 4 * 2 ** 20;
 
@@ -55,6 +55,19 @@ export function createApp({ feed = new BusFeed({ apiKey: process.env.BODS_API_KE
       if (!sameOrigin(req)) return json(403, { error: 'Cross-origin request refused' });
       try {
         const body = await readJson(req);
+        if (pathname === '/api/simulation/closures') {
+          // {action: 'close', lon, lat} or {action: 'reopen', id}; the worker checks the road exists.
+          const [west, south, east, north] = SIM_CONFIG.network.bbox;
+          if (body.action === 'close') {
+            if (!Number.isFinite(body.lon) || !Number.isFinite(body.lat) || body.lon < west || body.lon > east || body.lat < south || body.lat > north) return json(400, { error: 'lon and lat must be inside the simulated area' });
+            return json(200, { closures: await simulation.closure({ action: 'close', lon: body.lon, lat: body.lat }) });
+          }
+          if (body.action === 'reopen') {
+            if (!Number.isInteger(body.id) || body.id < 0) return json(400, { error: 'id must be a closure id' });
+            return json(200, { closures: await simulation.closure({ action: 'reopen', closureId: body.id }) });
+          }
+          return json(400, { error: "action must be 'close' or 'reopen'" });
+        }
         if (pathname === '/api/simulation/pause') {
           if (typeof body.paused !== 'boolean') return json(400, { error: 'paused must be true or false' });
           if (!simulation.setPaused(body.paused)) return json(409, { error: 'No running simulation to pause' });
@@ -143,6 +156,7 @@ export function attachSimulationStream(server, simulation) {
     ws.on('close', updateSignalViews);
     send(ws, JSON.stringify({ type: 'status', status: simulation.getStatus() }));
     if (simulation.snapshot) sendSnapshot(ws, simulation.snapshot);
+    if (simulation.impact) send(ws, JSON.stringify({ type: 'impact', geojson: simulation.impact }));
   });
   function updateSignalViews() {
     simulation.setSignalViews?.([...wss.clients].filter(ws => ws.wantsSignals).map(ws => ws.bbox).slice(0, 64));
@@ -154,6 +168,7 @@ export function attachSimulationStream(server, simulation) {
   simulation.on('snapshot', payload => { for (const ws of wss.clients) sendSnapshot(ws, payload); });
   simulation.on('status', status => broadcast(JSON.stringify({ type: 'status', status })));
   simulation.on('run', status => broadcast(JSON.stringify({ type: 'run', status })));
+  simulation.on('impact', geojson => broadcast(JSON.stringify({ type: 'impact', geojson })));
   simulation.on('progress', progress => broadcast(JSON.stringify({ type: 'progress', progress })));
   server.on('close', () => wss.close());
   return wss;

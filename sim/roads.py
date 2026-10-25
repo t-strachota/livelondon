@@ -128,11 +128,12 @@ def build(source, out, bbox, classes):
         nodes = [(node.ref, round(node.lon, 6), round(node.lat, 6)) for node in way.nodes if node.location.valid()]
         if len(nodes) < 2 or not any(inside(node.location) for node in way.nodes if node.location.valid()):
             continue
-        ways.append((tags, nodes))
+        ways.append((way.id, tags, nodes))
     # Split ways into edges at junctions: nodes shared by several ways, or way ends.
-    uses = Counter(ref for _, nodes in ways for ref, *_ in nodes)
-    edges = []  # [from_node, to_node, class, lanes, speed, inferred, two_way, coords]
-    for tags, nodes in ways:
+    uses = Counter(ref for _, _, nodes in ways for ref, *_ in nodes)
+    edges = []  # [from_node, to_node, class, lanes, speed, inferred, two_way, coords, way_id, name]
+    for way_id, tags, nodes in ways:
+        name = tags.get('name') or tags.get('ref') or ''
         oneway = tags.get('oneway') in ('yes', 'true', '1', '-1') or tags.get('junction') in ('roundabout', 'circular') or tags['highway'] in ONEWAY_CLASSES
         if tags.get('oneway') == '-1':
             nodes = nodes[::-1]
@@ -143,10 +144,10 @@ def build(source, out, bbox, classes):
             piece.append(node)
             if uses[node[0]] > 1 or node is nodes[-1]:
                 coords = [value for _, lon, lat in piece for value in (lon, lat)]
-                edges.append([piece[0][0], piece[-1][0], tags['highway'], forward, speed, inferred, not oneway, coords])
+                edges.append([piece[0][0], piece[-1][0], tags['highway'], forward, speed, inferred, not oneway, coords, way_id, name])
                 if not oneway:
                     back = [value for _, lon, lat in piece[::-1] for value in (lon, lat)]
-                    edges.append([piece[-1][0], piece[0][0], tags['highway'], backward, speed, inferred, True, back])
+                    edges.append([piece[-1][0], piece[0][0], tags['highway'], backward, speed, inferred, True, back, way_id, name])
                 piece = [node]
     # Keep only the largest strongly connected part so no car can reach a dead end.
     leaving = {}
@@ -156,14 +157,17 @@ def build(source, out, bbox, classes):
     kept = [edge for i, edge in enumerate(edges) if i in keep]
     node_ids = {ref: n for n, ref in enumerate(sorted({ref for edge in kept for ref in edge[:2]}))}
     class_names = sorted({edge[2] for edge in kept})
+    names = sorted({edge[9] for edge in kept})
+    name_index = {name: k for k, name in enumerate(names)}
     lengths = [sum(haversine(*edge[7][k:k + 4]) for k in range(0, len(edge[7]) - 2, 2)) for edge in kept]
     signals = snap_signals(signal_points, kept, node_ids)
     roads = {
-        'bbox': bbox, 'classes': class_names, 'nodes': len(node_ids),
+        'bbox': bbox, 'classes': class_names, 'nodes': len(node_ids), 'names': names,
         # Signalised junction node indices (OpenStreetMap highway=traffic_signals snapped to junctions).
         'signals': signals,
-        # Each edge: [from, to, class index, lanes, speed m/s, speed inferred 0/1, two-way 0/1, length m, [lon, lat, ...]].
-        'edges': [[node_ids[e[0]], node_ids[e[1]], class_names.index(e[2]), e[3], e[4], int(e[5]), int(e[6]), round(length, 1), e[7]]
+        # Each edge: [from, to, class index, lanes, speed m/s, speed inferred 0/1, two-way 0/1, length m, [lon, lat, ...],
+        #             OSM way id, name index]. The two directions of a two-way road share the way id.
+        'edges': [[node_ids[e[0]], node_ids[e[1]], class_names.index(e[2]), e[3], e[4], int(e[5]), int(e[6]), round(length, 1), e[7], e[8], name_index[e[9]]]
                   for e, length in zip(kept, lengths)],
     }
     Path(out).parent.mkdir(parents=True, exist_ok=True)

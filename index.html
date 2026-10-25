@@ -43,6 +43,19 @@
       <footer class="panel-footer"><span class="live-indicator"></span> LONDON IN MOTION <span>EST. / LIVE</span></footer>
     </div>
   </aside>
+  <div class="closure-card" aria-label="Road closures">
+    <button id="closure-mode" class="closure-button" type="button" aria-pressed="false" aria-controls="sim-closures">Close roads</button>
+    <section id="sim-closures" hidden>
+      <p id="closure-note" class="detail" role="status" aria-live="polite"></p>
+      <ul id="sim-closure-list"></ul>
+      <div id="sim-closure-results" hidden>
+        <p id="sim-rerouted" class="detail"></p>
+        <p class="detail"><span class="impact-key freer"></span> freer <span class="impact-key slower"></span> slower than before the closure (within 2 km)</p>
+        <h3>Most affected roads</h3>
+        <ol id="sim-affected"></ol>
+      </div>
+    </section>
+  </div>
 <div id="cctv-viewer" hidden>
   <div class="cv-head"><span id="cv-name"></span><button id="cv-close" aria-label="Close camera">×</button></div>
   <div class="cctv-frame"><img id="cv-img" alt=""><div class="cctv-fx"></div><div class="cctv-badge live"><i></i>LIVE</div>

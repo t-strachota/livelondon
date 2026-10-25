@@ -253,6 +253,7 @@ function updatePopup(content, bus) {
 }
 
 map.on('click', event => {
+  if (layers.cars?.closing()) { layers.cars.onRoadClick(event); return; }
   if (map.getLayer('cctv-dots') && map.queryRenderedFeatures(event.point, { layers: ['cctv-dots'] }).length) return;
   if (!busesEnabled) return;
   const bus = busAt(event.point);
