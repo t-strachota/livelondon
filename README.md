@@ -1,5 +1,7 @@
 # LiveLondon
 
+Returning to the project? Start with [the project summary and return guide](PROJECT_SUMMARY.md) for its purpose, architecture, development history and current limitations.
+
 Live TfL bus GPS positions, a persistent simulated car traffic layer for central London, traffic flow colours and JamCam snapshots on one London map. Zoomed-out buses are red dots; between zoom 16 and 17 they crossfade into small 3D double-deckers, while the map tilts gradually to 40 degrees. Grey dots are bus stops. Click a bus to see its route, destination, vehicle and GPS recording time.
 
 ## Run locally
@@ -147,7 +149,7 @@ The car count is a modelling choice, not a measured count of London traffic.
 
 ### Performance tab
 
-The left panel has two tabs, **Controls** and **Performance**. The Performance tab shows live indicators: browser FPS, simulation step and encode time, simulation speed (real-time factor), simulated cars drawn and on screen, and live bus and train counts. They refresh once a second, only while the tab is open and the page is visible.
+The left panel has four tabs: **Explore**, **Simulation**, **Live stats** and **Performance**. The Performance tab shows live indicators: browser FPS, simulation step and encode time, simulation speed (real-time factor), simulated cars drawn and on screen, and live bus and train counts. They refresh once a second, only while the tab is open and the page is visible.
 
 **This browser only.** These are saved in this browser's `localStorage` under `london-map:performance`. They change how much this browser draws; other viewers and the simulation are unaffected.
 
@@ -160,7 +162,7 @@ The left panel has two tabs, **Controls** and **Performance**. The Performance t
 
 "Reset to default" returns to High.
 
-**Shared simulation (affects everyone).** The car population belongs to the one shared simulation. By default it follows London time. The **Manual population** slider in the Controls tab, which the Performance tab links to, takes effect only when someone re-initializes with live data. It then stays manual until **Live** or **Back to live** is chosen. A refused request (invalid count, or a re-initialization already running) leaves the count source unchanged. Starting the server with `SIM_POPULATION` also sets a manual count. No browser-only setting changes the population, the timing or the state of the simulation.
+**Shared simulation (affects everyone).** The car population belongs to the one shared simulation. By default it follows London time. The **Manual population** slider in the Simulation tab, which the Performance tab links to, takes effect only when someone re-initializes with live data. It then stays manual until **Live** or **Back to live** is chosen. A refused request (invalid count, or a re-initialization already running) leaves the count source unchanged. Starting the server with `SIM_POPULATION` also sets a manual count. No browser-only setting changes the population, the timing or the state of the simulation.
 
 While the page is hidden, the browser stops asking for car snapshots and signal frames and skips its drawing work. The shared simulation keeps running.
 
