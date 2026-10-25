@@ -423,10 +423,12 @@ export function createSimulatedCars(map, toggle, signalToggle) {
       : ({ running: 'Simulation running', paused: 'Simulation paused for everyone', initializing: 'Preparing simulation…', failed: `Simulation failed: ${status?.reason}`, crashed: 'Simulation restarting…', unavailable: status?.reason ?? 'Simulation unavailable' })[status?.lifecycle] ?? 'Connecting…';
     if (hotspotToggle.checked) $('hotspot-detail').textContent = `${!connected || stale ? 'Last confirmed clusters · ' : ''}Slow simulated cars in the loaded map area. Model estimates, not observed incidents.`;
     const population = status?.population, observation = status?.observation, perf = status?.performance, health = status?.health;
-    $('sim-global').textContent = population ? `${population.actual.toLocaleString()} (target ${population.target.toLocaleString()})` : '—';
+    $('sim-global').textContent = population ? population.actual.toLocaleString() : '—';
+    $('sim-global').title = population ? `Target: ${population.target.toLocaleString()} cars` : '';
     $('sim-visible').textContent = layer.count ? visible.toLocaleString() : '0';
     $('sim-speed').textContent = status?.averageSpeedMps == null ? '—' : `${(status.averageSpeedMps * 3.6).toFixed(1)} km/h`;
-    $('sim-time').textContent = status?.simTime == null ? '—' : `${clock(status.simTime)} · run ${status.runId}`;
+    $('sim-time').textContent = status?.simTime == null ? '—' : clock(status.simTime);
+    $('sim-time').title = status?.runId ? `Run ${status.runId}` : '';
     if (observation) {
       const age = observation.observedAt ? Math.round((Date.now() - Date.parse(observation.observedAt)) / 60000) : null;
       const label = ({ live: 'Live TomTom', stale: 'Stale TomTom', fallback: 'Fallback (no live data)' })[observation.status];

@@ -196,7 +196,7 @@ export function createStopTools(map, layers, { busAt }) {
   const body = $('closure-body');
   try { const h = Number(localStorage.getItem('london-map:closure-height')); if (h > 0) body.style.height = `${Math.min(h, innerHeight - 100)}px`; } catch { /* Optional. */ }
   new ResizeObserver(() => {
-    if (body.style.height) try { localStorage.setItem('london-map:closure-height', String(Math.round(body.offsetHeight))); } catch { /* Optional. */ }
+    if (body.style.height && body.offsetHeight > 0) try { localStorage.setItem('london-map:closure-height', String(Math.round(body.offsetHeight))); } catch { /* Optional. */ }
   }).observe(body);
 
   // ---- Stopped list, effect panel, pulsing markers ---------------------------------------------

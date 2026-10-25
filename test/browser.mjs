@@ -1,3 +1,4 @@
+import { enterMap, selectTab, fixtureOptionalFeeds } from './ui-helpers.mjs';
 import assert from 'node:assert/strict';
 import { once, EventEmitter } from 'node:events';
 import { mkdir } from 'node:fs/promises';
@@ -18,6 +19,7 @@ let apiRequests = 0;
 try {
   browser = await chromium.launch({ executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE || undefined, headless: true, args: ['--enable-unsafe-swiftshader', '--use-angle=swiftshader'] });
   const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+  await fixtureOptionalFeeds(context);
   page = await context.newPage();
   page.on('request', request => { if (new URL(request.url()).pathname === '/api/buses') apiRequests++; });
   page.on('pageerror', error => errors.push(error.message));
@@ -26,6 +28,7 @@ try {
   await context.route('https://api.maptiler.com/**', route => route.fulfill({ headers: { 'access-control-allow-origin': '*' }, json: { version: 8, sources: {}, layers: [{ id: 'background', type: 'background', paint: { 'background-color': '#f2f2ef' } }] } }));
   await context.route('https://overpass-api.de/**', route => route.fulfill({ headers: { 'access-control-allow-origin': '*' }, json: { elements: [] } }));
   await page.goto(base);
+  await enterMap(page);
   await page.waitForFunction(() => window.londonBuses?.buses.length === 300 && window.londonBuses.modelsReady);
   await page.waitForFunction(() => window.londonBuses.map.queryRenderedFeatures({ layers: ['live-bus-dots'] }).length > 10);
   assert.equal(await page.locator('#feed-status').textContent(), 'Live bus locations');
@@ -71,6 +74,7 @@ try {
 
   // The preference must survive reload, and enabling must fetch immediately.
   await page.reload();
+  await enterMap(page);
   await page.waitForFunction(() => window.londonBuses?.modelsReady);
   assert.equal(await page.locator('#toggle-buses').isChecked(), false);
   assert.equal(await page.evaluate(() => window.londonBuses.buses.length), 0);
@@ -78,6 +82,7 @@ try {
   await page.locator('#toggle-buses').check();
   await page.waitForFunction(() => window.londonBuses.buses.length === 300);
   assert.ok(apiRequests > pausedRequests);
+  await selectTab(page, 'statistics');
   assert.equal(await page.locator('#bus-info').isVisible(), true);
   await page.evaluate(() => window.londonBuses.map.jumpTo({ zoom: 18 }));
   await page.waitForFunction(() => window.londonBuses.modelCount > 50);
@@ -126,6 +131,7 @@ try {
   const fallback = await context.newPage();
   await fallback.route('**/bus-layer.js', route => route.abort());
   await fallback.goto(base);
+  await enterMap(fallback);
   await fallback.waitForFunction(() => window.londonBuses?.buses.length === 300);
   await fallback.evaluate(() => window.londonBuses.map.jumpTo({ zoom: 18 }));
   assert.equal(await fallback.evaluate(() => window.londonBuses.modelsReady), false);
@@ -139,13 +145,14 @@ try {
   const simulationPosts = [];
   perf.on('request', request => { if (request.method() === 'POST' && new URL(request.url()).pathname.startsWith('/api/simulation')) simulationPosts.push(request.url()); });
   await perf.goto(base);
+  await enterMap(perf);
   await perf.waitForFunction(() => window.londonBuses?.buses.length === 300 && window.londonBuses.modelsReady);
   assert.equal(await perf.locator('#tab-performance').isVisible(), false);
-  await perf.locator('#tab-btn-controls').focus();
+  await perf.locator('#tab-statistics').focus();
   await perf.keyboard.press('ArrowRight');
   assert.equal(await perf.locator('#tab-btn-performance').getAttribute('aria-selected'), 'true');
   assert.equal(await perf.locator('#tab-performance').isVisible(), true);
-  assert.equal(await perf.locator('#tab-controls').isVisible(), false);
+  assert.equal(await perf.locator('#section-simulation').isVisible(), false);
   assert.equal(await perf.locator('input[name=perf-preset][value=high]').isChecked(), true, 'High is the default');
   await perf.getByRole('radio', { name: /^Low/ }).check();
   assert.equal(await perf.locator('#perf-models').isChecked(), false);
@@ -158,6 +165,7 @@ try {
   assert.equal(await perf.locator('#perf-preset-custom').isVisible(), true);
   assert.equal(await perf.locator('input[name=perf-preset][value=custom]').isChecked(), true);
   await perf.reload();
+  await enterMap(perf);
   await perf.waitForFunction(() => window.londonBuses?.modelsReady);
   assert.equal(await perf.locator('#tab-performance').isVisible(), true, 'open tab is remembered');
   assert.equal(await perf.locator('#perf-render-rate').inputValue(), '30');
@@ -167,7 +175,7 @@ try {
   await perf.evaluate(() => window.londonBuses.map.jumpTo({ zoom: 18, center: [-.128, 51.507] }));
   await perf.waitForFunction(() => window.londonBuses.modelCount > 0);
   await perf.locator('#perf-population-link').click();
-  assert.equal(await perf.locator('#tab-controls').isVisible(), true);
+  assert.equal(await perf.locator('#section-simulation').isVisible(), true);
   assert.equal(await perf.evaluate(() => document.activeElement.id), 'sim-population');
   assert.deepEqual(simulationPosts, [], 'local settings never post to the shared simulation');
   assert.deepEqual(errors, []);
@@ -187,6 +195,7 @@ try {
     });
     await live.route('https://overpass-api.de/**', route => route.fulfill({ json: { elements: [] } }));
     await live.goto(process.env.LIVE_URL);
+    await enterMap(live);
     await live.waitForFunction(() => window.londonBuses?.buses.length > 0 && window.londonBuses.modelsReady, undefined, { timeout: 60_000 });
     await live.waitForFunction(() => window.londonBuses.map.queryRenderedFeatures({ layers: ['live-bus-dots'] }).length > 10);
     let liveFeed;

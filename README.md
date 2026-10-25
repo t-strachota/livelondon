@@ -10,7 +10,7 @@ Requires Node.js 24.5 or newer.
 npm install
 ```
 
-The supplied [Bus Open Data Service](https://data.bus-data.dft.gov.uk/) key is included in the Git-tracked `.env`, as requested, so a checkout can run immediately. Edit `BODS_API_KEY` there to use another key. `.env.example` remains a blank template. The server does not serve `.env` or send the key to the browser.
+Provide your own Bus Open Data Service credential as `BODS_API_KEY` in your local `.env`. Use `.env.example` as a configuration reference. See [Provider configuration](#provider-configuration) for other providers.
 
 ```sh
 npm start
@@ -26,25 +26,29 @@ Use the **Live TfL buses** switch in the map panel to show or hide the bus overl
 
 ## Interface and appearance
 
-The left panel groups **Data Streams**, **Simulation Settings**, and **Statistics**. Use the minus button to minimize it and the plus button to reopen it. The moon/sun button switches both the controls and basemap between light and dark themes. These preferences persist in this browser; they do not restart the shared simulation.
+The rounded controls use four tabs: **Explore** for buses, traffic and cameras; **Simulation** for model settings; **Live stats** for counts, speeds and feed status; and **Performance** for browser rendering settings and diagnostics. On phones, controls sit in a scrollable bottom sheet. Use minus/plus to minimize or reopen it, and moon/sun to switch the controls and basemap between light and dark themes. The selected tab, theme and minimized state persist in this browser. Arrow keys navigate the tabs. **Back to central London** returns the map to its starting view. The stop tools retain road, train-line and bus controls. **Impact & history** expands economic impact, affected roads and saved closure sessions.
 
-An initial loading screen introduces the map and dismisses once it is ready. **Explore while data loads** lets you continue immediately, including during a slow or unavailable map connection. Bus and simulation feeds connect independently and report their own readiness in Statistics.
+The application opens directly into a two-message text introduction about the cost of poorly managed transport and data-driven decisions. Press a key or tap to advance, then **Enter simulator** to open the rounded individual interface without changing saved layer visibility. **Skip intro** or Escape enters immediately. There is no workspace chooser or separate professional interface, and onboarding has no vehicle animations.
+
+**Replay introduction** starts the text sequence again. Reduced-motion preferences are respected. Intro navigation changes only this browser's view and never resets or pauses the shared run. Road closure scenarios remain exploratory; automatic route recommendations, passenger crowding forecasts and rail line closure scenarios are planned capabilities. The prototype's forecasts have not been validated for operational decisions.
 
 Traffic flow uses thinner, partially transparent TomTom lines with a small free-flow/congested legend. Tile refreshes keep the existing layer in place. **Congestion epicenters** adds soft red glows over clusters of slow *simulated* cars, independently of the car-dot toggle. Every second it groups received cars into 250 m cells and highlights cells with at least eight cars below 3 m/s (10.8 km/h), where at least half the cell's cars are slow. This is a viewport-derived visual estimate, not city-wide incident detection or live congestion tracking; traffic lights can also create these queues. Reconnecting holds the last confirmed state. Rendering these glows never changes vehicle positions or simulation state.
 
-## API keys and configuration
+## Provider configuration
 
-The shared project keys are included below as requested. The BODS key is also in the Git-tracked `.env`; the MapTiler browser key is configured in `public/app.js`.
+Obtain your own credentials from each provider. Keep private credentials in local configuration or deployment secrets, and do not include real credentials in documentation, commits or shared examples.
 
-| Service | Project API key | Used for |
+| Service | Configuration | Used for |
 | --- | --- | --- |
-| DfT Bus Open Data Service (BODS) | `e5f1a3ff2cedd7e7cdd90c9eb38c58741a0b9ea3` | Live TfL bus GPS positions; used by the Node server. |
-| MapTiler | `Piqlzte12zD4i2H9jha1` | Streets, buildings, road labels and basemap tiles in the browser. |
-| TomTom Traffic | `CPnPmYj0K9TjSsJsQ7cQp3NJ6vjm0c8C` | Browser traffic raster tiles; server-side vector flow tiles that seed the car simulation. |
-| TfL Unified API | `f8f5ffa16163428b8f2ceaa86afdb967` | Optional key for higher request limits; stop and JamCam requests currently work anonymously. |
-| OpenStreetMap / Overpass | No key | Fallback display of bus-stop markers. |
+| DfT Bus Open Data Service (BODS) | `BODS_API_KEY` in the server environment or local `.env`. | Live TfL bus GPS positions. |
+| MapTiler | `MAPTILER_KEY` in `public/app.js`. | Browser basemap tiles, buildings and road labels. |
+| TomTom Traffic | `TOMTOM_KEY` in `public/config.js`; the server also accepts the `TOMTOM_KEY` environment variable. | Traffic raster tiles and numeric vector observations for simulation seeding. |
+| TfL Unified API | Current stop and JamCam requests are anonymous. | Route-specific stops and street cameras. |
+| OpenStreetMap / Overpass | No credential required. | Fallback display of bus-stop markers. |
 
-To replace a key, edit `BODS_API_KEY` in `.env` or `MAPTILER_KEY` in `public/app.js`. TomTom is configured in `public/config.js`. The shared TfL key above is optional and does not replace the BODS key. Changing the BODS key requires restarting `npm start`; changing the MapTiler key requires refreshing the page.
+Browser tile credentials are visible to visitors; apply the provider's supported origin and usage restrictions. Restart `npm start` after changing server environment variables, and refresh the page after changing browser configuration.
+
+Before making an existing repository public, remove committed credentials from tracked files and history and revoke or rotate credentials that were previously committed. Removing a value from this README does not remove earlier versions from Git history.
 
 | Setting | Default / behaviour |
 | --- | --- |
@@ -77,7 +81,7 @@ Initial route-stop loading can take about a minute. During loading, buses contin
 - Three.js instancing shares the red body, windows and wheel geometry across visible buses. Models use the reported heading and front-of-bus GPS anchor. The low-poly double-decker is an illustrative vehicle, not a statement about the actual model on each route. If 3D fails, the red dots remain visible.
 - The existing MapTiler Streets map and Overpass stop fallback are retained. MapLibre was updated to 6.15.0 to address the older version’s published sanitizer vulnerability; the custom layer uses the current render interface.
 
-The GPS feed and route-specific stop catalog are handled by the server. The BODS key never appears in API responses or frontend assets. The map retains its existing public MapTiler browser key. The local server binds to loopback. Deployment needs a Node-capable host; publishing only static files will not run the feed.
+The GPS feed and route-specific stop catalog are handled by the server. The BODS key never appears in API responses or frontend assets. Browser tile credentials are configured separately and remain visible in browser requests. The local server binds to loopback. Deployment needs a Node-capable host; publishing only static files will not run the feed.
 
 ## Simulated cars
 
@@ -218,3 +222,7 @@ Unit and HTTP tests cover XML parsing, freshness, caching, outage recovery, full
 - Road network: OpenStreetMap contributors via the Geofabrik Greater London extract (ODbL).
 - Basemap: MapTiler and OpenStreetMap contributors, as credited on the map.
 - Bus stops: OpenStreetMap contributors via map tiles and Overpass.
+
+### Integrated UI verification
+
+The UX2 onboarding and sliding tabs are integrated with main’s trains, stop tools, London-time demand controls, personality display, closure history, economics and Performance settings. Replaying or skipping onboarding never writes layer preferences or changes the shared simulation. Run `npm test`, `npm run test:browser`, `npm run test:overlays` and `npm run test:integration` for fixture-based checks.

@@ -1,3 +1,4 @@
+import { enterMap, selectTab, fixtureOptionalFeeds } from './ui-helpers.mjs';
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import { mkdir } from 'node:fs/promises';
@@ -55,6 +56,7 @@ const errors = [], calls = { speeds: 0, tiles: 0, cameraList: 0, images: 0, buse
 try {
   browser = await chromium.launch({ executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE || undefined, headless: true, args: ['--enable-unsafe-swiftshader', '--use-angle=swiftshader'] });
   const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+  await fixtureOptionalFeeds(context);
   page = await context.newPage();
   page.on('pageerror', error => errors.push(error.message));
   page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
@@ -78,11 +80,13 @@ try {
   await page.route('https://camera.test/**', route => { calls.images++; return route.fulfill({ contentType: 'image/png', body: image }); });
   await page.route('https://overpass-api.de/**', route => route.fulfill({ headers: { 'access-control-allow-origin': '*' }, json: { elements: [] } }));
   await page.goto(base);
+  await enterMap(page);
   await page.waitForFunction(() => window.londonLayers?.cameras && window.londonBuses.buses.length === 300);
   assert.equal(calls.speeds, 0); assert.equal(calls.tiles, 0); assert.equal(calls.cameraList, 0);
 
   await page.waitForFunction(() => document.getElementById('loading-screen').hidden);
-  assert.deepEqual(await page.locator('.control-section h2').allTextContents(), ['01 Data Streams', '02 Simulation Settings', '03 Statistics']);
+  assert.deepEqual(await page.locator('.section-heading h2').allTextContents(), ['Explore live conditions', 'Scenario workspace', 'The city right now']);
+  assert.equal(await page.locator('#tab-btn-performance').count(), 1);
   await page.locator('#panel-minimize').click();
   assert.equal(await page.locator('#panel-content').isVisible(), false);
   assert.equal(await page.locator('#panel-minimize').getAttribute('aria-expanded'), 'false');
@@ -95,8 +99,10 @@ try {
   assert.equal(await page.evaluate(() => window.londonBuses.map.getPaintProperty('background', 'background-color')), '#f2f2ef');
 
   // Cars come only from the server's run: the browser draws what it is sent and never spawns its own.
+  await selectTab(page, 'explore');
   await page.locator('#toggle-buses').uncheck();
   await page.evaluate(() => window.londonBuses.map.jumpTo({ zoom: 13, center: [-.128, 51.507] }));
+  await selectTab(page, 'simulation');
   await page.locator('#toggle-cars').check();
   await page.waitForFunction(() => window.londonLayers.cars.renderedCount === 200);
   assert.equal(await page.evaluate(() => window.londonLayers.cars.runId), 7);
@@ -148,8 +154,10 @@ try {
   // Queue clusters are visual estimates; they work independently of car dots.
   await page.evaluate(() => window.londonBuses.map.jumpTo({ zoom: 13, center: [-.128, 51.507] }));
   simulation.congested = true;
+  await selectTab(page, 'simulation');
   await page.locator('#toggle-hotspots').check();
   await page.waitForFunction(async () => (await window.londonBuses.map.getSource('congestion-epicenters').getData()).features.length > 0);
+  await selectTab(page, 'simulation');
   await page.locator('#toggle-cars').uncheck();
   const beforeHotspotFrames = await page.evaluate(() => window.londonLayers.cars.snapshotsReceived);
   await page.waitForFunction(n => window.londonLayers.cars.snapshotsReceived > n, beforeHotspotFrames);
@@ -166,31 +174,38 @@ try {
   await page.screenshot({ path: 'test-results/ux-hotspots.png' });
   simulation.congested = false;
   await page.waitForFunction(async () => (await window.londonBuses.map.getSource('congestion-epicenters').getData()).features.length === 0);
+  await selectTab(page, 'simulation');
   await page.locator('#toggle-hotspots').uncheck();
+  await selectTab(page, 'simulation');
   await page.locator('#toggle-cars').check();
   await page.waitForFunction(() => window.londonLayers.cars.renderedCount > 0);
 
   // Pause is shared and holds positions; play resumes.
+  await selectTab(page, 'simulation');
   await page.locator('#sim-pause').click();
   await page.waitForFunction(() => window.londonLayers.cars.status.pausedForEveryone);
   await page.waitForTimeout(300);
   const held = await page.evaluate(() => window.londonLayers.cars.positions().slice(0, 4));
   await page.waitForTimeout(400);
   assert.deepEqual(await page.evaluate(() => window.londonLayers.cars.positions().slice(0, 4)), held);
+  await selectTab(page, 'simulation');
   await page.locator('#sim-pause').click();
   await page.waitForFunction(() => !window.londonLayers.cars.status.pausedForEveryone);
   await page.screenshot({ path: 'test-results/cars-close.png' });
   await page.evaluate(() => window.londonBuses.map.jumpTo({ zoom: 13, center: [-.128, 51.507] }));
 
+  await selectTab(page, 'explore');
   await page.locator('#toggle-traffic').check();
   await page.waitForFunction(() => window.londonBuses.map.getLayer('traffic'));
   await page.waitForTimeout(400);
   assert.ok(calls.tiles > 0);
   assert.equal(await page.locator('#toggle-buses').isChecked(), false);
+  await selectTab(page, 'explore');
   await page.locator('#toggle-traffic').uncheck();
   assert.equal(await page.evaluate(() => !!window.londonBuses.map.getLayer('traffic')), false);
 
   await page.evaluate(() => window.londonBuses.map.jumpTo({ zoom: 14, center: [-.128, 51.507] }));
+  await selectTab(page, 'explore');
   await page.locator('#toggle-cameras').check();
   await page.waitForFunction(() => window.londonLayers.cameras.previews > 0);
   assert.equal(calls.cameraList, 1);
@@ -213,7 +228,9 @@ try {
 
   // All layers can coexist with main's bus-only tilt policy.
   await page.locator('#cv-close').click();
+  await selectTab(page, 'explore');
   await page.locator('#toggle-buses').check();
+  await selectTab(page, 'explore');
   await page.locator('#toggle-traffic').check();
   await page.evaluate(() => window.londonBuses.map.jumpTo({ zoom: 17, center: [-.128, 51.507] }));
   await page.waitForFunction(() => window.londonBuses.modelCount > 0 && window.londonLayers.cars.renderedCount > 0);
@@ -221,11 +238,15 @@ try {
   await page.screenshot({ path: 'test-results/all-layers.png' });
 
   // Disabling cameras closes the viewer and stops snapshot refreshes.
+  await selectTab(page, 'explore');
   await page.locator('#toggle-cameras').uncheck();
   assert.equal(await page.locator('#cctv-viewer').isVisible(), false);
   assert.equal(await page.locator('.cctv-wrap').count(), 0);
+  await selectTab(page, 'simulation');
   await page.locator('#toggle-cars').uncheck();
+  await selectTab(page, 'explore');
   await page.locator('#toggle-traffic').uncheck();
+  await selectTab(page, 'explore');
   await page.locator('#toggle-buses').uncheck();
   const paused = { ...calls };
   await page.evaluate(() => { window.londonBuses.map.jumpTo({ zoom: 14 }); document.dispatchEvent(new Event('visibilitychange')); });
@@ -233,16 +254,20 @@ try {
   assert.deepEqual(calls, paused);
   assert.equal(await page.evaluate(() => window.londonLayers.cars.renderedCount), 0);
   await page.reload();
+  await enterMap(page);
   await page.waitForFunction(() => window.londonLayers?.cameras);
   // A reload joins the same server-owned run.
+  await selectTab(page, 'simulation');
   await page.locator('#toggle-cars').check();
   await page.waitForFunction(() => window.londonLayers.cars.renderedCount === 200 && window.londonLayers.cars.runId === 7);
+  await selectTab(page, 'simulation');
   await page.locator('#toggle-cars').uncheck();
   for (const name of ['buses', 'cars', 'traffic', 'cameras']) assert.equal(await page.locator(`#toggle-${name}`).isChecked(), false);
   assert.deepEqual(calls, paused);
   await page.locator('#theme-toggle').click();
   await page.locator('#panel-minimize').click();
   await page.reload();
+  await enterMap(page);
   await page.waitForFunction(() => window.londonLayers?.cameras && document.getElementById('loading-screen').hidden);
   assert.equal(await page.locator('html').getAttribute('data-theme'), 'dark');
   assert.equal(await page.locator('#panel-content').isVisible(), false);
@@ -255,7 +280,7 @@ try {
   await offline.emulateMedia({ reducedMotion: 'reduce' });
   await offline.route('https://api.maptiler.com/**', route => route.abort());
   await offline.goto(base);
-  await offline.locator('#loading-continue').click();
+  await enterMap(offline);
   await offline.waitForFunction(() => document.getElementById('loading-screen').hidden);
   const offlineExpanded = await offline.locator('#panel-minimize').getAttribute('aria-expanded');
   await offline.locator('#panel-minimize').click();

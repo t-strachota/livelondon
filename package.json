@@ -9,7 +9,8 @@
     "test": "node --test test/*.test.mjs",
     "test:sim": "node lib/run-python.mjs -m unittest discover -s sim/tests -t . -v",
     "test:browser": "node test/browser.mjs",
-    "test:overlays": "node test/overlays.mjs"
+    "test:overlays": "node test/overlays.mjs",
+    "test:integration": "node test/ui-integration.mjs"
   },
   "engines": {
     "node": ">=24.5"

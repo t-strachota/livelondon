@@ -31,7 +31,7 @@ export function createPerformance(map, layers, { showTab } = {}) {
   apply(store.get());
 
   $('perf-population-link').addEventListener('click', () => {
-    showTab?.('controls');
+    showTab?.('simulation');
     const slider = $('sim-population');
     slider.scrollIntoView({ block: 'center' });
     slider.focus();
