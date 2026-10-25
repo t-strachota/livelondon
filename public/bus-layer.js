@@ -44,6 +44,20 @@ export function makeCar() {
   });
 }
 
+// One 16 m train carriage, front at the origin. The body is white so the per-instance line colour shows;
+// windows and roof are darker parts tinted by the same colour.
+export const TRAIN_CAR_LENGTH = 17; // carriage plus gap
+export function makeTrainCar() {
+  const body = [box([2.8, 16, 2.6], [0, -8, 1.6])];
+  const glass = [box([.04, 14.4, .75], [-1.42, -8, 2.1]), box([.04, 14.4, .75], [1.42, -8, 2.1]), box([2.3, .04, .8], [0, .02, 2.1])];
+  const roof = [box([2.5, 15.6, .25], [0, -8, 3.02])];
+  return [[body, 0xffffff], [glass, 0x2a3036], [roof, 0x9a9a9a]].map(([parts, color]) => {
+    const geometry = mergeGeometries(parts);
+    for (const part of parts) part.dispose();
+    return { geometry, material: new THREE.MeshLambertMaterial({ color, transparent: true }) };
+  });
+}
+
 // A traffic light: grey pole and black head; the lit lamp (part 0) is drawn per instance at the
 // red (top), amber or green (bottom) position in that colour. Exaggerated in size to read at zoom 16+.
 const LAMP_HEIGHT = [4.0, 4.5, 5.0]; // GREEN, AMBER, RED
@@ -58,9 +72,10 @@ export function makeTrafficLight() {
 }
 
 export class BusLayer {
-  constructor(map, onFailure = () => {}, { id = 'live-bus-models', makeParts = makeBus } = {}) {
+  constructor(map, onFailure = () => {}, { id = 'live-bus-models', makeParts = makeBus, alpha = 1 } = {}) {
     this.id = id;
     this.makeParts = makeParts;
+    this.alpha = alpha; // extra transparency, e.g. for trains that are underground
     this.type = 'custom';
     this.renderingMode = '3d';
     this.map = map;
@@ -115,15 +130,16 @@ export class BusLayer {
       this.transform.rotation.set(0, 0, -bus.bearing * Math.PI / 180);
       this.transform.scale.setScalar(coordinate.meterInMercatorCoordinateUnits() / this.unit);
       this.transform.updateMatrix();
-      this.color.setRGB(bus.stale ? .35 : 1, bus.stale ? .35 : 1, bus.stale ? .35 : 1);
+      if (bus.color) this.color.set(bus.color);
+      else this.color.setRGB(bus.stale ? .35 : 1, bus.stale ? .35 : 1, bus.stale ? .35 : 1);
       for (const mesh of this.meshes) { mesh.setMatrixAt(i, this.transform.matrix); mesh.setColorAt(i, this.color); }
     }
     for (const mesh of this.meshes) {
       mesh.count = visible.length;
       mesh.instanceMatrix.needsUpdate = true;
       if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
-      mesh.material.opacity = this.opacity;
-      mesh.material.depthWrite = this.opacity >= 1;
+      mesh.material.opacity = this.opacity * this.alpha;
+      mesh.material.depthWrite = this.opacity * this.alpha >= 1;
     }
     this.map.triggerRepaint();
   }

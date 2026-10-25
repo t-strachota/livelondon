@@ -4,6 +4,7 @@ import { BusMotionStore, pitchForZoom, toGeoJSON } from '/lib/motion.mjs';
 import { createTraffic } from '/traffic.js';
 import { createSimulatedCars } from '/sim-cars.js';
 import { createCameras } from '/cameras.js';
+import { addShapeIcon, createTrains } from '/trains.js';
 
 const interfaceUI = createInterface();
 
@@ -57,11 +58,11 @@ map.keyboard.disableRotation();
 map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'bottom-right');
 map.addControl(new maplibregl.AttributionControl({
   compact: true,
-  customAttribution: 'Traffic: TomTom · Cameras: TfL · Bus data: TfL / <a href="https://www.gov.uk/guidance/find-and-use-bus-open-data" target="_blank" rel="noopener">DfT BODS</a> · <a href="https://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/" target="_blank" rel="noopener">OGL v3.0</a>',
+  customAttribution: 'Traffic: TomTom · Cameras and trains: TfL · Bus data: TfL / <a href="https://www.gov.uk/guidance/find-and-use-bus-open-data" target="_blank" rel="noopener">DfT BODS</a> · <a href="https://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/" target="_blank" rel="noopener">OGL v3.0</a>',
 }), 'bottom-right');
 
 map.on('zoom', () => {
-  const pitch = busesEnabled || layers.cars?.enabled ? pitchForZoom(map.getZoom()) : 0;
+  const pitch = busesEnabled || layers.cars?.enabled || layers.trains?.enabled ? pitchForZoom(map.getZoom()) : 0;
   if (Math.abs(map.getPitch() - pitch) > .01) map.setPitch(pitch);
 });
 map.on('move', () => { dirty = true; });
@@ -100,8 +101,7 @@ function setDotOpacity() {
   if (!map.getLayer('live-bus-dots')) return;
   const ageOpacity = ['case', ['get', 'stale'], .35, 1];
   const opacity = modelsReady ? ['interpolate', ['linear'], ['zoom'], 16, ageOpacity, 17, 0] : ageOpacity;
-  map.setPaintProperty('live-bus-dots', 'circle-opacity', opacity);
-  map.setPaintProperty('live-bus-dots', 'circle-stroke-opacity', opacity);
+  map.setPaintProperty('live-bus-dots', 'icon-opacity', opacity);
 }
 
 function modelFailure() {
@@ -131,9 +131,10 @@ map.on('load', async () => {
   map.addSource('overpass-bus', { type: 'geojson', data: toGeoJSON([]) });
   map.addLayer({ id: 'bus-stops-osm', type: 'circle', source: 'overpass-bus', minzoom: 15, paint: stopPaint });
   map.addSource('live-buses', { type: 'geojson', data: toGeoJSON([]) });
+  addShapeIcon(map, 'bus-square', 'square', '#d32f2f');
   map.addLayer({
-    id: 'live-bus-dots', type: 'circle', source: 'live-buses',
-    paint: { 'circle-radius': ['interpolate', ['linear'], ['zoom'], 10, 2.5, 16, 4], 'circle-color': '#d32f2f', 'circle-stroke-color': '#fff', 'circle-stroke-width': 1 },
+    id: 'live-bus-dots', type: 'symbol', source: 'live-buses', // red squares from afar
+    layout: { 'icon-image': 'bus-square', 'icon-size': ['interpolate', ['linear'], ['zoom'], 10, .45, 16, .7], 'icon-allow-overlap': true, 'icon-ignore-placement': true },
   });
   map.addLayer({
     id: 'live-bus-hit', type: 'circle', source: 'live-buses',
@@ -150,6 +151,7 @@ map.on('load', async () => {
   layers.traffic = createTraffic(map, overlayToggles[0]);
   layers.cars = createSimulatedCars(map, overlayToggles[1], document.getElementById('toggle-signals'));
   layers.cameras = createCameras(map, overlayToggles[2], document.querySelector('.panel'));
+  layers.trains = createTrains(map, document.querySelector('#toggle-trains'), document.querySelector('#toggle-train-lines'), document.querySelector('#train-status'));
   updateBusVisibility();
   dirty = true;
   void poll();
@@ -255,6 +257,7 @@ function updatePopup(content, bus) {
 map.on('click', event => {
   if (layers.cars?.closing()) { layers.cars.onRoadClick(event); return; }
   if (map.getLayer('cctv-dots') && map.queryRenderedFeatures(event.point, { layers: ['cctv-dots'] }).length) return;
+  if (layers.trains?.click(event)) return;
   if (!busesEnabled) return;
   const bus = busAt(event.point);
   popup?.remove();

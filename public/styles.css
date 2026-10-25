@@ -142,3 +142,4 @@ button:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); 
 #sim-closures ul button:disabled { opacity: .6; cursor: default; }
 .maplibregl-canvas.closing-roads { cursor: crosshair; }
 @media (max-width: 600px) { .closure-card { top: auto; bottom: 90px; right: 12px; } }
+.stream-dot.trains { background: #6950A1; }

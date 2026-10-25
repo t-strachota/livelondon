@@ -5,6 +5,7 @@ import { WebSocketServer } from 'ws';
 import { BusFeed, POLL_MS } from './lib/feed.mjs';
 import { StopCatalog } from './lib/stops.mjs';
 import { SIM_CONFIG, SimulationSupervisor, cullSnapshot } from './lib/simulation.mjs';
+import { TrainFeed } from './lib/trains.mjs';
 
 const root = new URL('./', import.meta.url);
 const files = new Map([
@@ -16,6 +17,7 @@ const files = new Map([
   ['/config.js', ['public/config.js', 'text/javascript; charset=utf-8']],
   ['/traffic.js', ['public/traffic.js', 'text/javascript; charset=utf-8']],
   ['/sim-cars.js', ['public/sim-cars.js', 'text/javascript; charset=utf-8']],
+  ['/trains.js', ['public/trains.js', 'text/javascript; charset=utf-8']],
   ['/cameras.js', ['public/cameras.js', 'text/javascript; charset=utf-8']],
   ['/cameras.css', ['public/cameras.css', 'text/css; charset=utf-8']],
   ['/bus-layer.js', ['public/bus-layer.js', 'text/javascript; charset=utf-8']],
@@ -44,7 +46,7 @@ async function readJson(req, limit = 1024) {
   try { return text ? JSON.parse(text) : {}; } catch { throw Object.assign(new Error('Invalid JSON'), { status: 400 }); }
 }
 
-export function createApp({ feed = new BusFeed({ apiKey: process.env.BODS_API_KEY?.trim() }), stops = null, simulation = null } = {}) {
+export function createApp({ feed = new BusFeed({ apiKey: process.env.BODS_API_KEY?.trim() }), stops = null, simulation = null, trains = null } = {}) {
   const server = createServer(async (req, res) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
@@ -95,6 +97,12 @@ export function createApp({ feed = new BusFeed({ apiKey: process.env.BODS_API_KE
         res.setHeader('Content-Type', 'application/json; charset=utf-8');
         res.setHeader('Cache-Control', 'no-store');
         body = Buffer.from(JSON.stringify(snapshot));
+      } else if (pathname === '/api/trains' || pathname === '/api/trains/lines') {
+        // Estimated train positions from TfL arrival predictions; the TfL key never leaves the server.
+        if (!trains) return json(503, { status: 'unavailable', trains: [] });
+        body = Buffer.from(JSON.stringify(pathname === '/api/trains' ? trains.getSnapshot() : trains.linesGeoJSON));
+        res.setHeader('Content-Type', 'application/json; charset=utf-8');
+        res.setHeader('Cache-Control', pathname === '/api/trains' ? 'no-store' : 'no-cache');
       } else if (pathname === '/api/simulation/signals') {
         // Static stop-line positions of every signal approach, [lon, lat, ...]; states arrive as 'SIG1' frames.
         if (!simulation) return json(503, { error: 'Simulation not configured' });
@@ -179,8 +187,10 @@ if (import.meta.main) {
   const stops = new StopCatalog();
   const feed = new BusFeed({ apiKey: process.env.BODS_API_KEY?.trim() });
   const simulation = new SimulationSupervisor({ population: Number(process.env.SIM_POPULATION) || undefined, roads: process.env.SIM_ROADS || undefined }).start();
-  const server = createApp({ feed, stops, simulation });
+  const trains = new TrainFeed({ appKey: process.env.TFL_APP_KEY?.trim() });
+  const server = createApp({ feed, stops, simulation, trains });
   void stops.start();
+  void trains.start();
   // Bus observations continue server-side whether or not any browser shows the overlay.
   void feed.getSnapshot();
   const busTimer = setInterval(() => void feed.getSnapshot(), POLL_MS);
@@ -190,12 +200,13 @@ if (import.meta.main) {
     if (simulation.lifecycle === 'unavailable') console.log(`Car simulation unavailable: ${simulation.reason}`);
   });
   // The simulation worker would otherwise keep a server that never started alive.
-  server.on('error', async error => { console.error(`Server could not start: ${error.code}`); clearInterval(busTimer); await simulation.close(); process.exit(1); });
+  server.on('error', async error => { console.error(`Server could not start: ${error.code}`); clearInterval(busTimer); trains.stop(); await simulation.close(); process.exit(1); });
   let stopping = false;
   const shutdown = async () => {
     if (stopping) return;
     stopping = true;
     clearInterval(busTimer);
+    trains.stop();
     server.close();
     await simulation.close();
     process.exit(0);

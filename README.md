@@ -175,6 +175,10 @@ Install Node 24 and Python 3.12, build the network once, then run `npm start` un
 
 Live cameras use `https://api.tfl.gov.uk/Place/Type/JamCam`. Green camera markers show up to eight nearby preview cards from zoom 13. Previews refresh every 15 seconds; clicking opens a draggable/resizable viewer refreshing every five seconds. Images are snapshots rather than a video stream. Turning cameras off closes the viewer and clears image timers. The map places cards around its controls and shows complete camera frames.
 
+## Trains
+
+"Trains" shows Tube, London Overground and Elizabeth line trains at an **estimated position from TfL arrival predictions**: TfL publishes when each train is due at each station, not where it is. The server fetches line geometry once (`/Line/{id}/Route/Sequence/{direction}`, cached in `data/trains/routes.json`), polls `/Line/{ids}/Arrivals` every 15 seconds, and places each train between its previous and next station by time to arrival. Ids come from TfL vehicle ids. A train missing from the predictions holds for 60 seconds, then disappears. DLR predictions carry no vehicle ids, so DLR trains are not shown (the DLR line is). Browsers run trains on along the track between polls and ease in corrections; from zoom 16 they are 3D carriages, with Tube trains semi-transparent because they are mostly underground. An optional `TFL_APP_KEY` in `.env` is used only by the server.
+
 ## Checks
 
 ```sh
@@ -190,7 +194,7 @@ Unit and HTTP tests cover XML parsing, freshness, caching, outage recovery, full
 ## Data credits
 
 - Bus locations: TfL iBus via DfT Bus Open Data Service, [Open Government Licence v3.0](https://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/).
-- Route-to-stop memberships and JamCam snapshots: Transport for London Unified API.
+- Route-to-stop memberships, JamCam snapshots, train lines and arrival predictions: Transport for London Unified API.
 - Traffic flow tiles and simulation seed observations: TomTom.
 - Road network: OpenStreetMap contributors via the Geofabrik Greater London extract (ODbL).
 - Basemap: MapTiler and OpenStreetMap contributors, as credited on the map.

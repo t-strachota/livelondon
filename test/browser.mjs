@@ -130,7 +130,7 @@ try {
   await fallback.evaluate(() => window.londonBuses.map.jumpTo({ zoom: 18 }));
   assert.equal(await fallback.evaluate(() => window.londonBuses.modelsReady), false);
   assert.match(await fallback.locator('#map-hint').textContent(), /3D rendering is unavailable/);
-  const opacity = await fallback.evaluate(() => window.londonBuses.map.getPaintProperty('live-bus-dots', 'circle-opacity'));
+  const opacity = await fallback.evaluate(() => window.londonBuses.map.getPaintProperty('live-bus-dots', 'icon-opacity'));
   assert.equal(opacity[0], 'case');
   console.log('PASS: red-dot fallback when 3D is unavailable');
 

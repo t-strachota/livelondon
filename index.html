@@ -25,6 +25,9 @@
         <label class="layer-toggle" id="traffic-toggle"><span><i class="stream-dot traffic"></i>Traffic flow<small>TomTom congestion observations</small></span><input id="toggle-traffic" type="checkbox" role="switch"></label>
         <div id="traffic-legend" class="flow-legend" hidden><span>Free flow</span><i></i><span>Congested</span></div>
         <label class="layer-toggle" id="cctv-toggle"><span><i class="stream-dot cameras"></i>Live cameras<small>TfL street views</small></span><input id="toggle-cameras" type="checkbox" role="switch" aria-controls="camera-status"></label><p id="camera-status" class="detail" hidden>Loading traffic cameras…</p>
+        <label class="layer-toggle" id="trains-toggle"><span><i class="stream-dot trains"></i>Trains<small>Tube, Overground, Elizabeth line · estimated from TfL arrival predictions</small></span><input id="toggle-trains" type="checkbox" role="switch" aria-describedby="train-status"></label>
+        <label class="layer-toggle"><span>Train lines<small>Official line colours</small></span><input id="toggle-train-lines" type="checkbox" role="switch" checked></label>
+        <p id="train-status" class="detail" role="status" aria-live="polite" hidden></p>
       </section>
       <section class="control-section"><h2><span>02</span> Simulation Settings</h2>
         <label class="layer-toggle" id="vehicles-toggle"><span><i class="stream-dot cars"></i>Simulated cars<small>Persistent model · independent of live GPS</small></span><input id="toggle-cars" type="checkbox" role="switch"></label>
